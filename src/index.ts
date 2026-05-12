@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { adminRouter } from './routes/admin';
 import { teacherRouter } from './routes/teacher';
 import { studentRouter } from './routes/student';
@@ -11,7 +12,13 @@ export type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// Global middleware (e.g. CORS, Error handling) could go here
+// Enable CORS for all routes so the frontends can communicate with this API
+app.use('/api/*', cors({
+  origin: (origin) => origin || '*', // Dynamically allow the requesting origin
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}));
 
 app.get('/', (c) => {
   return c.text('Welcome to SomoBloom API Backend');
