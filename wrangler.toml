@@ -1,12 +1,13 @@
 name = "somobloom-backend"
 main = "src/index.ts"
 compatibility_date = "2024-11-27"
+account_id = "b9a79aebae11306fcf65d0e01cce47be"
 
 # Set up Cloudflare D1 Database binding
 [[d1_databases]]
 binding = "DB" # Available as env.DB in the code
 database_name = "somobloom_db"
-database_id = "00000000-0000-0000-0000-000000000000" # Dummy ID for local dev
+database_id = "b8f09cbc-c8d0-499c-895e-2cc396b12ae6"
 
 # Set up Cloudflare Workers AI binding
 [ai]
