@@ -1,0 +1,24 @@
+{
+  "name": "somobloom-backend",
+  "version": "1.0.0",
+  "description": "SomoBloom serverless backend on Cloudflare Workers",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "wrangler d1 migrations apply somobloom_db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply somobloom_db --remote"
+  },
+  "dependencies": {
+    "hono": "^4.6.12",
+    "drizzle-orm": "^0.36.3",
+    "@cloudflare/ai": "^1.2.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "drizzle-kit": "^0.28.1",
+    "typescript": "^5.7.2",
+    "wrangler": "^3.91.0"
+  }
+}
