@@ -11,5 +11,5 @@ database_id = "b8f09cbc-c8d0-499c-895e-2cc396b12ae6"
 migrations_dir = "drizzle"
 
 # Set up Cloudflare Workers AI binding
-[ai]
-binding = "AI" # Available as env.AI in the code
+# [ai]
+# binding = "AI" # Available as env.AI in the code

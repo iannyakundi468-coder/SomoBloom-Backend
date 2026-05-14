@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { sign } from 'hono/jwt';
 import { getDb } from '../db/client';
-import { users, schools, adminProfiles } from '../db/schema';
+import { users, schools, adminProfiles, teacherProfiles, studentProfiles, parentProfiles } from '../db/schema';
 import { hashPassword, verifyPassword, type JwtPayload } from '../lib/auth';
 import { eq } from 'drizzle-orm';
 
@@ -108,24 +108,51 @@ authRouter.post('/login', async (c) => {
   }
 
   // 3. Find user profile to get role and schoolId
-  // For now, let's assume they are an Admin. In a real app, we would check all profile tables 
-  // (adminProfiles, teacherProfiles, studentProfiles, parentProfiles) to determine their role.
+  let userRole: 'admin' | 'teacher' | 'student' | 'parent' | null = null;
+  let userProfileName = '';
+  let userSchoolId = '';
+
   const adminProfile = await db.select().from(adminProfiles).where(eq(adminProfiles.userId, user.id)).get();
-  
-  if (!adminProfile) {
-    // Placeholder: Need to check other profile types here if they aren't an admin
-    return c.json({ error: 'User profile not found. Multi-role login not fully implemented.' }, 403);
+  if (adminProfile) {
+    userRole = 'admin';
+    userProfileName = adminProfile.name;
+    userSchoolId = adminProfile.schoolId;
+  } else {
+    const teacherProfile = await db.select().from(teacherProfiles).where(eq(teacherProfiles.userId, user.id)).get();
+    if (teacherProfile) {
+      userRole = 'teacher';
+      userProfileName = teacherProfile.name;
+      userSchoolId = teacherProfile.schoolId;
+    } else {
+      const studentProfile = await db.select().from(studentProfiles).where(eq(studentProfiles.userId, user.id)).get();
+      if (studentProfile) {
+        userRole = 'student';
+        userProfileName = studentProfile.name;
+        userSchoolId = studentProfile.schoolId;
+      } else {
+        const parentProfile = await db.select().from(parentProfiles).where(eq(parentProfiles.userId, user.id)).get();
+        if (parentProfile) {
+          userRole = 'parent';
+          userProfileName = parentProfile.name;
+          userSchoolId = parentProfile.schoolId;
+        }
+      }
+    }
+  }
+
+  if (!userRole) {
+    return c.json({ error: 'User profile not found.' }, 403);
   }
 
   // Generate JWT
   const payload: JwtPayload = {
     sub: user.id,
-    schoolId: adminProfile.schoolId,
-    role: 'admin', // Hardcoded to admin for now based on profile check
+    schoolId: userSchoolId,
+    role: userRole,
     exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7,
   };
 
-  const token = await sign(payload, getSecret(c.env));
+  const token = await sign(payload, getSecret(c.env), 'HS256');
 
   return c.json({
     message: 'Login successful',
@@ -133,9 +160,9 @@ authRouter.post('/login', async (c) => {
     user: {
       id: user.id,
       email: user.email,
-      name: adminProfile.name,
-      role: 'admin',
-      schoolId: adminProfile.schoolId
+      name: userProfileName,
+      role: userRole,
+      schoolId: userSchoolId
     }
   });
 });
