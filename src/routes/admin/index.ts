@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments } from '../../db/schema';
+import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
@@ -229,3 +229,15 @@ adminRouter.post('/classes/:classId/enrollments', async (c) => {
     return c.json({ error: 'Failed to enroll student' }, 500);
   }
 });
+
+adminRouter.get('/enrollments', async (c) => {
+  const db = getDb(c.env.DB);
+  try {
+    const submissions = await db.select().from(studentEnrollmentSubmissions).all();
+    return c.json({ enrollments: submissions });
+  } catch (error: any) {
+    console.error('Failed to fetch enrollments:', error);
+    return c.json({ error: 'Failed to fetch enrollment submissions' }, 500);
+  }
+});
+

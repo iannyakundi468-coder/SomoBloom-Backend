@@ -23,8 +23,14 @@ app.use('/api/*', cors({
 }));
 
 app.get('/', (c) => {
-  return c.text('Welcome to SomoBloom API Backend');
+  return c.json({
+    status: 'operational',
+    service: 'SomoBloom API Backend',
+    version: '1.0.0',
+    documentation: '/api'
+  });
 });
+
 
 // Mount modular routers
 app.route('/api/auth', authRouter);

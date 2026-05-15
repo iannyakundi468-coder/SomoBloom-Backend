@@ -106,3 +106,22 @@ export const announcements = sqliteTable('announcements', {
   targetAudience: text('target_audience', { enum: ['all', 'teachers', 'students', 'parents'] }).notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+// --- ENROLLMENT SUBMISSIONS (Raw Data) ---
+export const studentEnrollmentSubmissions = sqliteTable('student_enrollment_submissions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  timestamp: text('timestamp'),
+  admissionNumber: text('admission_number'),
+  firstName: text('first_name'),
+  lastName: text('last_name'),
+  gender: text('gender'),
+  gradeApplyingFor: text('grade_applying_for'),
+  guardianName: text('guardian_name'),
+  relationship: text('relationship'),
+  phoneNumber: text('phone_number'),
+  email: text('email'),
+  emergencyNumber: text('emergency_number'),
+  status: text('status', { enum: ['pending', 'approved', 'rejected'] }).default('pending').notNull(),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
