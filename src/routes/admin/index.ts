@@ -241,3 +241,259 @@ adminRouter.get('/enrollments', async (c) => {
   }
 });
 
+// GET /api/admin/users
+adminRouter.get('/users', async (c) => {
+  const db = getDb(c.env.DB);
+  try {
+    const admins = await db.select({
+      id: adminProfiles.id,
+      userId: adminProfiles.userId,
+      name: adminProfiles.name,
+      email: users.email,
+      createdAt: adminProfiles.createdAt,
+    })
+    .from(adminProfiles)
+    .innerJoin(users, eq(adminProfiles.userId, users.id))
+    .all();
+
+    const teachers = await db.select({
+      id: teacherProfiles.id,
+      userId: teacherProfiles.userId,
+      name: teacherProfiles.name,
+      email: users.email,
+      createdAt: teacherProfiles.createdAt,
+      department: teacherProfiles.department,
+    })
+    .from(teacherProfiles)
+    .innerJoin(users, eq(teacherProfiles.userId, users.id))
+    .all();
+
+    const students = await db.select({
+      id: studentProfiles.id,
+      userId: studentProfiles.userId,
+      name: studentProfiles.name,
+      email: users.email,
+      createdAt: studentProfiles.createdAt,
+      studentIdNumber: studentProfiles.studentIdNumber,
+    })
+    .from(studentProfiles)
+    .innerJoin(users, eq(studentProfiles.userId, users.id))
+    .all();
+
+    const parents = await db.select({
+      id: parentProfiles.id,
+      userId: parentProfiles.userId,
+      name: parentProfiles.name,
+      email: users.email,
+      createdAt: parentProfiles.createdAt,
+      phoneNumber: parentProfiles.phoneNumber,
+    })
+    .from(parentProfiles)
+    .innerJoin(users, eq(parentProfiles.userId, users.id))
+    .all();
+
+    const combinedUsers = [
+      ...admins.map(a => ({ ...a, role: 'admin', status: 'active' })),
+      ...teachers.map(t => ({ ...t, role: 'teacher', status: 'active' })),
+      ...students.map(s => ({ ...s, role: 'student', status: 'active' })),
+      ...parents.map(p => ({ ...p, role: 'parent', status: 'active' }))
+    ];
+
+    return c.json({ users: combinedUsers });
+  } catch (error: any) {
+    console.error('Failed to fetch users:', error);
+    return c.json({ error: 'Failed to fetch users' }, 500);
+  }
+});
+
+// GET /api/admin/classes
+adminRouter.get('/classes', async (c) => {
+  const db = getDb(c.env.DB);
+  try {
+    const classesList = await db.select({
+      id: classes.id,
+      name: classes.name,
+      teacherProfileId: classes.teacherProfileId,
+      teacherName: teacherProfiles.name,
+      createdAt: classes.createdAt,
+    })
+    .from(classes)
+    .leftJoin(teacherProfiles, eq(classes.teacherProfileId, teacherProfiles.id))
+    .all();
+
+    const allEnrollments = await db.select().from(enrollments).all();
+
+    const formattedClasses = classesList.map(cls => {
+      const classEnrollments = allEnrollments
+        .filter(e => e.classId === cls.id)
+        .map(e => e.studentProfileId);
+
+      return {
+        id: cls.id,
+        name: cls.name,
+        teacherId: cls.teacherProfileId,
+        teacher: cls.teacherName || 'Unassigned',
+        students: classEnrollments
+      };
+    });
+
+    return c.json({ classes: formattedClasses });
+  } catch (error: any) {
+    console.error('Failed to fetch classes:', error);
+    return c.json({ error: 'Failed to fetch classes' }, 500);
+  }
+});
+
+// PUT /api/admin/users/:id
+adminRouter.put('/users/:id', async (c) => {
+  const { id } = c.req.param();
+  const body = await c.req.json();
+  const { name, email, department, studentIdNumber, phoneNumber } = body;
+
+  const db = getDb(c.env.DB);
+  try {
+    let user = await db.select().from(users).where(eq(users.id, id)).get();
+    let userId = id;
+
+    if (!user) {
+      const teacher = await db.select().from(teacherProfiles).where(eq(teacherProfiles.id, id)).get();
+      if (teacher) {
+        userId = teacher.userId;
+      } else {
+        const student = await db.select().from(studentProfiles).where(eq(studentProfiles.id, id)).get();
+        if (student) {
+          userId = student.userId;
+        } else {
+          const parent = await db.select().from(parentProfiles).where(eq(parentProfiles.id, id)).get();
+          if (parent) {
+            userId = parent.userId;
+          }
+        }
+      }
+      user = await db.select().from(users).where(eq(users.id, userId)).get();
+    }
+
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+
+    const updates: Promise<any>[] = [];
+
+    if (email) {
+      updates.push(db.update(users).set({ email }).where(eq(users.id, userId)));
+    }
+
+    const teacher = await db.select().from(teacherProfiles).where(eq(teacherProfiles.userId, userId)).get();
+    if (teacher) {
+      updates.push(db.update(teacherProfiles).set({
+        name: name || teacher.name,
+        department: department !== undefined ? department : teacher.department
+      }).where(eq(teacherProfiles.userId, userId)));
+    }
+
+    const student = await db.select().from(studentProfiles).where(eq(studentProfiles.userId, userId)).get();
+    if (student) {
+      updates.push(db.update(studentProfiles).set({
+        name: name || student.name,
+        studentIdNumber: studentIdNumber !== undefined ? studentIdNumber : student.studentIdNumber
+      }).where(eq(studentProfiles.userId, userId)));
+    }
+
+    const parent = await db.select().from(parentProfiles).where(eq(parentProfiles.userId, userId)).get();
+    if (parent) {
+      updates.push(db.update(parentProfiles).set({
+        name: name || parent.name,
+        phoneNumber: phoneNumber !== undefined ? phoneNumber : parent.phoneNumber
+      }).where(eq(parentProfiles.userId, userId)));
+    }
+
+    await Promise.all(updates);
+
+    return c.json({ message: 'User updated successfully' });
+  } catch (error: any) {
+    console.error('Failed to update user:', error);
+    return c.json({ error: 'Failed to update user' }, 500);
+  }
+});
+
+// DELETE /api/admin/users/:id
+adminRouter.delete('/users/:id', async (c) => {
+  const { id } = c.req.param();
+  const db = getDb(c.env.DB);
+  try {
+    let user = await db.select().from(users).where(eq(users.id, id)).get();
+    let userId = id;
+
+    if (!user) {
+      const teacher = await db.select().from(teacherProfiles).where(eq(teacherProfiles.id, id)).get();
+      if (teacher) {
+        userId = teacher.userId;
+      } else {
+        const student = await db.select().from(studentProfiles).where(eq(studentProfiles.id, id)).get();
+        if (student) {
+          userId = student.userId;
+        } else {
+          const parent = await db.select().from(parentProfiles).where(eq(parentProfiles.id, id)).get();
+          if (parent) {
+            userId = parent.userId;
+          }
+        }
+      }
+    }
+
+    await db.batch([
+      db.delete(teacherProfiles).where(eq(teacherProfiles.userId, userId)),
+      db.delete(studentProfiles).where(eq(studentProfiles.userId, userId)),
+      db.delete(parentProfiles).where(eq(parentProfiles.userId, userId)),
+      db.delete(users).where(eq(users.id, userId))
+    ]);
+
+    return c.json({ message: 'User deleted successfully' });
+  } catch (error: any) {
+    console.error('Failed to delete user:', error);
+    return c.json({ error: 'Failed to delete user' }, 500);
+  }
+});
+
+// PUT /api/admin/classes/:id
+adminRouter.put('/classes/:id', async (c) => {
+  const { id } = c.req.param();
+  const body = await c.req.json();
+  const { name, teacherId } = body;
+
+  const db = getDb(c.env.DB);
+  try {
+    const classItem = await db.select().from(classes).where(eq(classes.id, id)).get();
+    if (!classItem) {
+      return c.json({ error: 'Class not found' }, 404);
+    }
+
+    await db.update(classes).set({
+      name: name || classItem.name,
+      teacherProfileId: teacherId || classItem.teacherProfileId
+    }).where(eq(classes.id, id));
+
+    return c.json({ message: 'Class updated successfully' });
+  } catch (error: any) {
+    console.error('Failed to update class:', error);
+    return c.json({ error: 'Failed to update class' }, 500);
+  }
+});
+
+// DELETE /api/admin/classes/:id
+adminRouter.delete('/classes/:id', async (c) => {
+  const { id } = c.req.param();
+  const db = getDb(c.env.DB);
+  try {
+    await db.batch([
+      db.delete(enrollments).where(eq(enrollments.classId, id)),
+      db.delete(classes).where(eq(classes.id, id))
+    ]);
+
+    return c.json({ message: 'Class deleted successfully' });
+  } catch (error: any) {
+    console.error('Failed to delete class:', error);
+    return c.json({ error: 'Failed to delete class' }, 500);
+  }
+});
+
