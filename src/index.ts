@@ -5,6 +5,7 @@ import { adminRouter } from './routes/admin';
 import { teacherRouter } from './routes/teacher';
 import { studentRouter } from './routes/student';
 import { parentRouter } from './routes/parent';
+import { messagesRouter } from './routes/messages';
 
 export type Bindings = {
   DB: D1Database;
@@ -20,7 +21,7 @@ app.use('/api/*', cors({
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
-}));
+  }));
 
 app.get('/', (c) => {
   return c.json({
@@ -38,5 +39,6 @@ app.route('/api/admin', adminRouter);
 app.route('/api/teacher', teacherRouter);
 app.route('/api/student', studentRouter);
 app.route('/api/parent', parentRouter);
+app.route('/api/messages', messagesRouter);
 
 export default app;

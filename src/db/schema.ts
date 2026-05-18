@@ -129,3 +129,15 @@ export const studentEnrollmentSubmissions = sqliteTable('student_enrollment_subm
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+// --- MESSAGES & COMMUNICATIONS ---
+export const messages = sqliteTable('messages', {
+  id: text('id').primaryKey(),
+  schoolId: text('school_id').references(() => schools.id).notNull(),
+  senderId: text('sender_id').references(() => users.id).notNull(),
+  receiverId: text('receiver_id').references(() => users.id).notNull(),
+  subject: text('subject'),
+  content: text('content').notNull(),
+  isRead: integer('is_read', { mode: 'boolean' }).default(false).notNull(),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+

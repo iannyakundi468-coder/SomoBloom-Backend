@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments } from '../../db/schema';
+import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments, announcements } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, or } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 
 export const parentRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
@@ -42,6 +42,31 @@ parentRouter.get('/me', async (c) => {
   return c.json({ profile });
 });
 
+// Fetch Announcements for Parents
+parentRouter.get('/announcements', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+
+  try {
+    const rawAnnouncements = await db.select()
+      .from(announcements)
+      .where(or(eq(announcements.targetAudience, 'parents'), eq(announcements.targetAudience, 'all')))
+      .all();
+
+    const formatted = rawAnnouncements.map((ann: any) => ({
+      id: ann.id,
+      title: ann.title,
+      details: ann.content,
+      date: ann.createdAt.split('T')[0]
+    }));
+
+    return c.json({ announcements: formatted });
+  } catch (err: any) {
+    console.error('Failed to fetch announcements:', err);
+    return c.json({ error: 'Failed to fetch announcements' }, 500);
+  }
+});
+
 // List linked students (children)
 parentRouter.get('/students', async (c) => {
   const payload = c.get('jwtPayload');
@@ -60,7 +85,30 @@ parentRouter.get('/students', async (c) => {
   .where(eq(parentStudentRelations.parentProfileId, profile.id))
   .all();
 
-  return c.json({ students: linkedStudents });
+  // Enrich children with class and teacher details
+  const enrichedStudents = await Promise.all(linkedStudents.map(async (student: any) => {
+    const studentEnrollment = await db.select({
+      classId: classes.id,
+      className: classes.name,
+      teacherProfileId: classes.teacherProfileId,
+      teacherName: teacherProfiles.name,
+      teacherUserId: teacherProfiles.userId
+    })
+    .from(enrollments)
+    .innerJoin(classes, eq(enrollments.classId, classes.id))
+    .innerJoin(teacherProfiles, eq(classes.teacherProfileId, teacherProfiles.id))
+    .where(eq(enrollments.studentProfileId, student.id))
+    .get();
+
+    return {
+      ...student,
+      grade: studentEnrollment?.className || 'Unassigned Grade',
+      teacherName: studentEnrollment?.teacherName || 'No Teacher Assigned',
+      teacherUserId: studentEnrollment?.teacherUserId || null
+    };
+  }));
+
+  return c.json({ students: enrichedStudents });
 });
 
 // Fetch grades for a specific child
