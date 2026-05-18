@@ -141,3 +141,14 @@ export const messages = sqliteTable('messages', {
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+// --- ATTENDANCE & ROLL CALLS ---
+export const attendance = sqliteTable('attendance', {
+  id: text('id').primaryKey(),
+  classId: text('class_id').references(() => classes.id).notNull(),
+  studentProfileId: text('student_profile_id').references(() => studentProfiles.id).notNull(),
+  date: text('date').notNull(), // format YYYY-MM-DD
+  status: text('status', { enum: ['present', 'absent', 'tardy'] }).notNull(),
+  remarks: text('remarks'),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
