@@ -306,6 +306,55 @@ teacherRouter.post('/assignments/:assignmentId/grades', async (c) => {
   }
 });
 
+// Generate AI Lesson Plans & Schemes of Work
+teacherRouter.post('/ai/generate-plan', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { type, topic, className } = body;
+
+  if (!topic || !type) {
+    return c.json({ error: 'Topic and document type are required' }, 400);
+  }
+
+  try {
+    const isScheme = type === 'scheme';
+    const docTitle = isScheme ? `Scheme of Work: ${topic}` : `Lesson Plan: ${topic}`;
+
+    const systemPrompt = isScheme
+      ? `You are an expert pedagogical AI assistant specializing in the Kenyan Competency Based Curriculum (CBC). 
+         Your task is to generate a comprehensive, highly detailed, and professional Scheme of Work.
+         It must follow standard CBC strands, learning outcomes, key inquiry questions, core competencies, learning experiences, and assessment rubrics.
+         Format the output beautifully using clean Markdown.`
+      : `You are an expert pedagogical AI assistant specializing in the Kenyan Competency Based Curriculum (CBC). 
+         Your task is to generate a detailed, structured, and premium Lesson Plan.
+         It must specify the lesson objective, time allocations (Introduction, Main Development, Conclusion), learner-centered activities, and a detailed assessment rubric.
+         Format the output beautifully using clean Markdown.`;
+
+    const userPrompt = isScheme
+      ? `Generate a detailed 3-week Scheme of Work for the topic: "${topic}" ${className ? `for the class "${className}"` : ''}.`
+      : `Generate a detailed 40-minute Lesson Plan for the topic: "${topic}" ${className ? `for the class "${className}"` : ''}.`;
+
+    // Execute the Cloudflare Workers AI model natively!
+    const aiResponse = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]
+    });
+
+    const content = aiResponse.response || aiResponse.text || 'Failed to generate content.';
+    
+    return c.json({
+      success: true,
+      title: docTitle,
+      content
+    });
+  } catch (err: any) {
+    console.error('Failed to run Cloudflare Workers AI:', err);
+    return c.json({ error: 'AI Generation failed. Please try again.' }, 500);
+  }
+});
+
 // Update Teacher Profile
 teacherRouter.put('/me', async (c) => {
   const payload = c.get('jwtPayload');
