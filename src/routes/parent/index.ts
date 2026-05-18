@@ -95,3 +95,28 @@ parentRouter.get('/students/:studentId/grades', async (c) => {
 
   return c.json({ grades: studentGrades });
 });
+
+// Update Parent Profile
+parentRouter.put('/me', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { name, avatarUrl } = body;
+
+  const db = getDb(c.env.DB);
+  try {
+    const profile = await db.select().from(parentProfiles).where(eq(parentProfiles.userId, payload.sub)).get();
+    if (!profile) {
+      return c.json({ error: 'Profile not found' }, 404);
+    }
+
+    await db.update(parentProfiles).set({
+      name: name || profile.name,
+      avatarUrl: avatarUrl !== undefined ? avatarUrl : profile.avatarUrl
+    }).where(eq(parentProfiles.userId, payload.sub));
+
+    return c.json({ message: 'Profile updated successfully' });
+  } catch (error: any) {
+    console.error('Failed to update parent profile:', error);
+    return c.json({ error: 'Failed to update parent profile' }, 500);
+  }
+});

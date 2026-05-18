@@ -497,3 +497,27 @@ adminRouter.delete('/classes/:id', async (c) => {
   }
 });
 
+// Update Admin Profile
+adminRouter.put('/me', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { name, avatarUrl } = body;
+
+  const db = getDb(c.env.DB);
+  try {
+    const profile = await db.select().from(adminProfiles).where(eq(adminProfiles.userId, payload.sub)).get();
+    if (!profile) {
+      return c.json({ error: 'Profile not found' }, 404);
+    }
+
+    await db.update(adminProfiles).set({
+      name: name || profile.name,
+      avatarUrl: avatarUrl !== undefined ? avatarUrl : profile.avatarUrl
+    }).where(eq(adminProfiles.userId, payload.sub));
+
+    return c.json({ message: 'Profile updated successfully' });
+  } catch (error: any) {
+    console.error('Failed to update admin profile:', error);
+    return c.json({ error: 'Failed to update admin profile' }, 500);
+  }
+});

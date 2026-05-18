@@ -107,3 +107,28 @@ teacherRouter.post('/assignments/:assignmentId/grades', async (c) => {
     return c.json({ error: 'Failed to submit grade' }, 500);
   }
 });
+
+// Update Teacher Profile
+teacherRouter.put('/me', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { name, avatarUrl } = body;
+
+  const db = getDb(c.env.DB);
+  try {
+    const profile = await db.select().from(teacherProfiles).where(eq(teacherProfiles.userId, payload.sub)).get();
+    if (!profile) {
+      return c.json({ error: 'Profile not found' }, 404);
+    }
+
+    await db.update(teacherProfiles).set({
+      name: name || profile.name,
+      avatarUrl: avatarUrl !== undefined ? avatarUrl : profile.avatarUrl
+    }).where(eq(teacherProfiles.userId, payload.sub));
+
+    return c.json({ message: 'Profile updated successfully' });
+  } catch (error: any) {
+    console.error('Failed to update teacher profile:', error);
+    return c.json({ error: 'Failed to update teacher profile' }, 500);
+  }
+});

@@ -25,6 +25,7 @@ export const adminProfiles = sqliteTable('admin_profiles', {
   userId: text('user_id').references(() => users.id).notNull(),
   schoolId: text('school_id').references(() => schools.id).notNull(),
   name: text('name').notNull(),
+  avatarUrl: text('avatar_url'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
@@ -34,6 +35,7 @@ export const teacherProfiles = sqliteTable('teacher_profiles', {
   schoolId: text('school_id').references(() => schools.id).notNull(),
   name: text('name').notNull(),
   department: text('department'),
+  avatarUrl: text('avatar_url'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
@@ -43,6 +45,7 @@ export const studentProfiles = sqliteTable('student_profiles', {
   schoolId: text('school_id').references(() => schools.id).notNull(),
   name: text('name').notNull(),
   studentIdNumber: text('student_id_number'),
+  avatarUrl: text('avatar_url'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
@@ -52,6 +55,7 @@ export const parentProfiles = sqliteTable('parent_profiles', {
   schoolId: text('school_id').references(() => schools.id).notNull(),
   name: text('name').notNull(),
   phoneNumber: text('phone_number'),
+  avatarUrl: text('avatar_url'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
