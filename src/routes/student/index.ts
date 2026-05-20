@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { studentProfiles, classes, enrollments, assignments, grades } from '../../db/schema';
+import { studentProfiles, classes, enrollments, assignments, grades, portfolioEvidence } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
 import { eq, and } from 'drizzle-orm';
 import type { Bindings } from '../../index';
@@ -159,5 +159,30 @@ studentRouter.put('/me', async (c) => {
   } catch (error: any) {
     console.error('Failed to update student profile:', error);
     return c.json({ error: 'Failed to update student profile' }, 500);
+  }
+});
+
+// Fetch student's own portfolio evidence (Cloudflare D1 Database)
+studentRouter.get('/portfolio', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+
+  try {
+    const profile = await db.select().from(studentProfiles).where(eq(studentProfiles.userId, payload.sub)).get();
+    if (!profile) return c.json({ error: 'Profile not found' }, 404);
+
+    const items = await db.select().from(portfolioEvidence)
+      .where(eq(portfolioEvidence.studentProfileId, profile.id))
+      .all();
+
+    return c.json({
+      portfolio: items.map((item: any) => ({
+        ...item,
+        tags: item.tags ? item.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []
+      }))
+    });
+  } catch (error: any) {
+    console.error('Failed to fetch student portfolio:', error);
+    return c.json({ error: 'Failed to fetch portfolio evidence' }, 500);
   }
 });

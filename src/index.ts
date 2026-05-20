@@ -6,10 +6,12 @@ import { teacherRouter } from './routes/teacher';
 import { studentRouter } from './routes/student';
 import { parentRouter } from './routes/parent';
 import { messagesRouter } from './routes/messages';
+import { mediaRouter } from './routes/media';
 
 export type Bindings = {
   DB: D1Database;
   AI: any; // Ai type from '@cloudflare/workers-types' but we can use any for now
+  BUCKET: R2Bucket;
   JWT_SECRET?: string;
   ENVIRONMENT?: string;
 };
@@ -41,5 +43,6 @@ app.route('/api/teacher', teacherRouter);
 app.route('/api/student', studentRouter);
 app.route('/api/parent', parentRouter);
 app.route('/api/messages', messagesRouter);
+app.route('/api/media', mediaRouter);
 
 export default app;

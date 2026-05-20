@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments, announcements, classes, teacherProfiles, enrollments } from '../../db/schema';
+import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments, announcements, classes, teacherProfiles, enrollments, portfolioEvidence } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
 import { eq, and, or } from 'drizzle-orm';
 import type { Bindings } from '../../index';
@@ -172,5 +172,40 @@ parentRouter.put('/me', async (c) => {
   } catch (error: any) {
     console.error('Failed to update parent profile:', error);
     return c.json({ error: 'Failed to update parent profile' }, 500);
+  }
+});
+
+// Fetch portfolio evidence for a specific child (Cloudflare D1 Database)
+parentRouter.get('/students/:studentId/portfolio', async (c) => {
+  const { studentId } = c.req.param();
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+
+  try {
+    const profile = await db.select().from(parentProfiles).where(eq(parentProfiles.userId, payload.sub)).get();
+    if (!profile) return c.json({ error: 'Profile not found' }, 404);
+
+    // Ensure this parent is linked to this student
+    const relation = await db.select().from(parentStudentRelations)
+      .where(and(eq(parentStudentRelations.parentProfileId, profile.id), eq(parentStudentRelations.studentProfileId, studentId)))
+      .get();
+
+    if (!relation) {
+      return c.json({ error: 'Not authorized to view this student\'s portfolio' }, 403);
+    }
+
+    const items = await db.select().from(portfolioEvidence)
+      .where(eq(portfolioEvidence.studentProfileId, studentId))
+      .all();
+
+    return c.json({
+      portfolio: items.map((item: any) => ({
+        ...item,
+        tags: item.tags ? item.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []
+      }))
+    });
+  } catch (error: any) {
+    console.error('Failed to fetch parent child portfolio:', error);
+    return c.json({ error: 'Failed to fetch child portfolio evidence' }, 500);
   }
 });

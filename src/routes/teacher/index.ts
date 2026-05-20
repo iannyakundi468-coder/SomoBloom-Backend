@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance } from '../../db/schema';
+import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
 import { eq, and, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
@@ -399,6 +399,104 @@ teacherRouter.put('/me', async (c) => {
   } catch (error: any) {
     console.error('Failed to update teacher profile:', error);
     return c.json({ error: 'Failed to update teacher profile' }, 500);
+  }
+});
+
+// Fetch all portfolio evidence uploaded by this teacher
+teacherRouter.get('/portfolio', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+
+  try {
+    const profile = await db.select().from(teacherProfiles).where(eq(teacherProfiles.userId, payload.sub)).get();
+    if (!profile) return c.json({ error: 'Profile not found' }, 404);
+
+    const teacherClasses = await db.select().from(classes).where(eq(classes.teacherProfileId, profile.id)).all();
+    if (teacherClasses.length === 0) {
+      return c.json({ portfolio: [] });
+    }
+
+    const classIds = teacherClasses.map(cls => cls.id);
+    const items = await db.select().from(portfolioEvidence)
+      .where(inArray(portfolioEvidence.classId, classIds))
+      .all();
+
+    return c.json({
+      portfolio: items.map((item: any) => ({
+        ...item,
+        tags: item.tags ? item.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []
+      }))
+    });
+  } catch (error: any) {
+    console.error('Failed to fetch teacher portfolio:', error);
+    return c.json({ error: 'Failed to fetch portfolio evidence' }, 500);
+  }
+});
+
+// Upload student portfolio evidence (Cloudflare R2 + D1 Database)
+teacherRouter.post('/portfolio/upload', async (c) => {
+  if (!c.env.BUCKET) {
+    return c.json({ error: 'R2 storage is currently unavailable' }, 500);
+  }
+
+  try {
+    const formData = await c.req.parseBody();
+    const file = formData['file'];
+    const title = formData['title'] as string;
+    const type = formData['type'] as string;
+    const classId = formData['classId'] as string;
+    const studentProfileId = formData['studentProfileId'] as string;
+    const tags = formData['tags'] as string || '';
+    const description = formData['description'] as string || '';
+
+    if (!file || !title || !classId || !studentProfileId) {
+      return c.json({ error: 'Missing required upload fields' }, 400);
+    }
+
+    if (!(file instanceof File)) {
+      return c.json({ error: 'Invalid file upload' }, 400);
+    }
+
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const fileKey = `${crypto.randomUUID()}.${fileExt}`;
+    const arrayBuffer = await file.arrayBuffer();
+    
+    await c.env.BUCKET.put(fileKey, arrayBuffer, {
+      httpMetadata: {
+        contentType: file.type || 'image/jpeg',
+      }
+    });
+
+    const db = getDb(c.env.DB);
+    const evidenceId = crypto.randomUUID();
+    const imageUrl = `/api/media/${fileKey}`;
+
+    await db.insert(portfolioEvidence).values({
+      id: evidenceId,
+      classId,
+      studentProfileId,
+      title,
+      type,
+      description,
+      imageUrl,
+      tags
+    });
+
+    return c.json({
+      message: 'Portfolio evidence uploaded successfully',
+      item: {
+        id: evidenceId,
+        title,
+        type,
+        classId,
+        studentProfileId,
+        imageUrl,
+        tags: tags.split(',').map((t: string) => t.trim()).filter(Boolean)
+      }
+    }, 201);
+  } catch (error: any) {
+    console.error('Failed to upload portfolio evidence:', error);
+    return c.json({ error: error.message || 'Failed to upload portfolio evidence' }, 500);
   }
 });
 

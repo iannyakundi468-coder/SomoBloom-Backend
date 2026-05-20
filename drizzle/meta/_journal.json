@@ -15,6 +15,13 @@
       "when": 1778864041177,
       "tag": "0001_absurd_the_initiative",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779290520600,
+      "tag": "0002_next_iron_monger",
+      "breakpoints": true
     }
   ]
 }

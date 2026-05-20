@@ -152,3 +152,16 @@ export const attendance = sqliteTable('attendance', {
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+// --- PORTFOLIO EVIDENCE ---
+export const portfolioEvidence = sqliteTable('portfolio_evidence', {
+  id: text('id').primaryKey(),
+  classId: text('class_id').references(() => classes.id).notNull(),
+  studentProfileId: text('student_profile_id').references(() => studentProfiles.id).notNull(),
+  title: text('title').notNull(),
+  type: text('type').notNull(), // 'Assignment', 'Project', 'Quiz', 'Other'
+  description: text('description'),
+  imageUrl: text('image_url').notNull(),
+  tags: text('tags'), // Comma-separated list of tags
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
