@@ -37,8 +37,3 @@ CREATE TABLE IF NOT EXISTS `portfolio_evidence` (
 	FOREIGN KEY (`class_id`) REFERENCES `classes`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`student_profile_id`) REFERENCES `student_profiles`(`id`) ON UPDATE no action ON DELETE no action
 );
---> statement-breakpoint
-ALTER TABLE `admin_profiles` ADD `avatar_url` text;--> statement-breakpoint
-ALTER TABLE `parent_profiles` ADD `avatar_url` text;--> statement-breakpoint
-ALTER TABLE `student_profiles` ADD `avatar_url` text;--> statement-breakpoint
-ALTER TABLE `teacher_profiles` ADD `avatar_url` text;
