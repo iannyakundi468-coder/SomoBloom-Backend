@@ -161,6 +161,7 @@ teacherRouter.get('/classes', async (c) => {
     console.error('Failed to fetch enriched teacher classes:', err);
     return c.json({ error: 'Failed to fetch teacher classes' }, 500);
   }
+});
 
 // Save daily student attendance logs
 teacherRouter.post('/classes/:classId/attendance', async (c) => {
@@ -228,25 +229,27 @@ teacherRouter.post('/classes/:classId/assessments', async (c) => {
     };
     const score = levelScoreMap[level] || 80;
 
-    let assignment = await db.select()
+    let assignmentId: string;
+    const existingAssignment = await db.select()
       .from(assignments)
       .where(and(eq(assignments.classId, classId), eq(assignments.title, name)))
       .get();
 
-    if (!assignment) {
-      const assignmentId = crypto.randomUUID();
+    if (!existingAssignment) {
+      assignmentId = crypto.randomUUID();
       await db.insert(assignments).values({
         id: assignmentId,
         classId,
         title: name,
         description: `CBC Assessment: ${type}`
       });
-      assignment = { id: assignmentId };
+    } else {
+      assignmentId = existingAssignment.id;
     }
 
     const existingGrade = await db.select()
       .from(grades)
-      .where(and(eq(grades.assignmentId, assignment.id), eq(grades.studentProfileId, studentProfileId)))
+      .where(and(eq(grades.assignmentId, assignmentId), eq(grades.studentProfileId, studentProfileId)))
       .get();
 
     if (existingGrade) {
@@ -257,7 +260,7 @@ teacherRouter.post('/classes/:classId/assessments', async (c) => {
       const gradeId = crypto.randomUUID();
       await db.insert(grades).values({
         id: gradeId,
-        assignmentId: assignment.id,
+        assignmentId,
         studentProfileId,
         score,
         feedback: `Assessment Level: ${level}`

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments, announcements } from '../../db/schema';
+import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments, announcements, classes, teacherProfiles, enrollments } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
 import { eq, and, or } from 'drizzle-orm';
 import type { Bindings } from '../../index';
