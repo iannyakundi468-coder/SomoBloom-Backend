@@ -1,14 +1,20 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../db/client';
-import { messages, adminProfiles, teacherProfiles, studentProfiles, parentProfiles } from '../db/schema';
+import { messages, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, users } from '../db/schema';
 import type { JwtPayload } from '../lib/auth';
 import { eq, or, desc } from 'drizzle-orm';
 import type { Bindings } from '../index';
 
 export const messagesRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
 
-const getSecret = (env: Bindings) => env.JWT_SECRET || 'somobloom_super_secret_dev_key_123';
+const getSecret = (env: Bindings) => {
+  if (env.JWT_SECRET) return env.JWT_SECRET;
+  if (env.ENVIRONMENT === 'production') {
+    throw new Error('FATAL SECURITY ERROR: JWT_SECRET environment variable is required in production.');
+  }
+  return 'somobloom_super_secret_dev_key_123';
+};
 
 // Apply JWT middleware
 messagesRouter.use('/*', (c, next) => {
@@ -93,6 +99,12 @@ messagesRouter.post('/', async (c) => {
 
   const db = getDb(c.env.DB);
   try {
+    // Verify recipient user exists
+    const recipientExists = await db.select({ id: users.id }).from(users).where(eq(users.id, receiverId)).get();
+    if (!recipientExists) {
+      return c.json({ error: 'Recipient user does not exist' }, 400);
+    }
+
     const messageId = crypto.randomUUID();
     
     // Auto-resolve school ID from sender profile

@@ -3,12 +3,18 @@ import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
 import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 
 export const teacherRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
 
-const getSecret = (env: Bindings) => env.JWT_SECRET || 'somobloom_super_secret_dev_key_123';
+const getSecret = (env: Bindings) => {
+  if (env.JWT_SECRET) return env.JWT_SECRET;
+  if (env.ENVIRONMENT === 'production') {
+    throw new Error('FATAL SECURITY ERROR: JWT_SECRET environment variable is required in production.');
+  }
+  return 'somobloom_super_secret_dev_key_123';
+};
 
 // Apply JWT middleware
 teacherRouter.use('/*', (c, next) => {
@@ -52,50 +58,64 @@ teacherRouter.get('/classes', async (c) => {
     if (!profile) return c.json({ error: 'Profile not found' }, 404);
 
     const teacherClasses = await db.select().from(classes).where(eq(classes.teacherProfileId, profile.id)).all();
+    if (teacherClasses.length === 0) {
+      return c.json({ classes: [] });
+    }
 
-    const enrichedClasses = await Promise.all(teacherClasses.map(async (cls: any) => {
-      // Fetch enrolled students
-      const enrolled = await db.select({
-        id: studentProfiles.id,
-        name: studentProfiles.name,
-        avatarUrl: studentProfiles.avatarUrl,
-        email: users.email
-      })
-      .from(enrollments)
-      .innerJoin(studentProfiles, eq(enrollments.studentProfileId, studentProfiles.id))
-      .innerJoin(users, eq(studentProfiles.userId, users.id))
-      .where(eq(enrollments.classId, cls.id))
+    const classIds = teacherClasses.map(cls => cls.id);
+
+    // 1. Bulk fetch all enrolled students across all classes
+    const allEnrollments = await db.select({
+      classId: enrollments.classId,
+      id: studentProfiles.id,
+      name: studentProfiles.name,
+      avatarUrl: studentProfiles.avatarUrl,
+      email: users.email
+    })
+    .from(enrollments)
+    .innerJoin(studentProfiles, eq(enrollments.studentProfileId, studentProfiles.id))
+    .innerJoin(users, eq(studentProfiles.userId, users.id))
+    .where(inArray(enrollments.classId, classIds))
+    .all();
+
+    // 2. Bulk fetch all attendance logs across all classes
+    const allAttendance = await db.select()
+      .from(attendance)
+      .where(inArray(attendance.classId, classIds))
       .all();
 
-      // Enrich each student with attendance metrics and CBC grades
-      const enrichedStudents = await Promise.all(enrolled.map(async (stu: any) => {
-        // 1. Calculate attendance percentages
-        const logs = await db.select()
-          .from(attendance)
-          .where(and(eq(attendance.classId, cls.id), eq(attendance.studentProfileId, stu.id)))
-          .all();
+    // 3. Bulk fetch all grades across all classes
+    const allGrades = await db.select({
+      classId: assignments.classId,
+      studentProfileId: grades.studentProfileId,
+      score: grades.score,
+      feedback: grades.feedback,
+      assignmentTitle: assignments.title
+    })
+    .from(grades)
+    .innerJoin(assignments, eq(grades.assignmentId, assignments.id))
+    .where(inArray(assignments.classId, classIds))
+    .all();
 
-        const total = logs.length;
-        const present = logs.filter((l: any) => l.status === 'present').length;
+    // Enrich teacher classes completely in-memory using highly-performant JavaScript filters
+    const enrichedClasses = teacherClasses.map((cls: any) => {
+      const classStudents = allEnrollments.filter((e: any) => e.classId === cls.id);
 
-        // 2. Fetch assessments (grades)
-        const classGrades = await db.select({
-          score: grades.score,
-          feedback: grades.feedback,
-          assignmentTitle: assignments.title
-        })
-        .from(grades)
-        .innerJoin(assignments, eq(grades.assignmentId, assignments.id))
-        .where(and(eq(assignments.classId, cls.id), eq(grades.studentProfileId, stu.id)))
-        .all();
+      const enrichedStudents = classStudents.map((stu: any) => {
+        // Attendance logs for this specific student in this specific class
+        const studentLogs = allAttendance.filter((l: any) => l.classId === cls.id && l.studentProfileId === stu.id);
+        const total = studentLogs.length;
+        const present = studentLogs.filter((l: any) => l.status === 'present').length;
 
-        // Convert assignment scores (grades) to strands/competencies or default
+        // Grades for this specific student in this specific class
+        const studentGrades = allGrades.filter((g: any) => g.classId === cls.id && g.studentProfileId === stu.id);
+
         const strands = [
           { name: 'Multiplication', level: 'ME' },
           { name: 'Fractions', level: 'ME' }
         ];
 
-        classGrades.forEach((g: any) => {
+        studentGrades.forEach((g: any) => {
           const matchingStrand = strands.find(s => s.name.toLowerCase() === g.assignmentTitle.toLowerCase());
           if (matchingStrand) {
             matchingStrand.level = g.score >= 90 ? 'EE' : g.score >= 70 ? 'ME' : g.score >= 50 ? 'AE' : 'BE';
@@ -108,7 +128,7 @@ teacherRouter.get('/classes', async (c) => {
           'Collaboration': 'ME'
         };
 
-        classGrades.forEach((g: any) => {
+        studentGrades.forEach((g: any) => {
           if (competencies[g.assignmentTitle] !== undefined) {
             competencies[g.assignmentTitle] = g.score >= 90 ? 'EE' : g.score >= 70 ? 'ME' : g.score >= 50 ? 'AE' : 'BE';
           }
@@ -124,7 +144,7 @@ teacherRouter.get('/classes', async (c) => {
           attendance: { present, total },
           cbcAssessments: { strands, competencies }
         };
-      }));
+      });
 
       return {
         id: cls.id,
@@ -134,14 +154,13 @@ teacherRouter.get('/classes', async (c) => {
         role: 'home',
         students: enrichedStudents
       };
-    }));
+    });
 
     return c.json({ classes: enrichedClasses });
   } catch (err: any) {
     console.error('Failed to fetch enriched teacher classes:', err);
     return c.json({ error: 'Failed to fetch teacher classes' }, 500);
   }
-});
 
 // Save daily student attendance logs
 teacherRouter.post('/classes/:classId/attendance', async (c) => {

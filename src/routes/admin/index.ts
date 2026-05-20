@@ -8,7 +8,13 @@ import type { Bindings } from '../../index';
 
 export const adminRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
 
-const getSecret = (env: Bindings) => env.JWT_SECRET || 'somobloom_super_secret_dev_key_123';
+const getSecret = (env: Bindings) => {
+  if (env.JWT_SECRET) return env.JWT_SECRET;
+  if (env.ENVIRONMENT === 'production') {
+    throw new Error('FATAL SECURITY ERROR: JWT_SECRET environment variable is required in production.');
+  }
+  return 'somobloom_super_secret_dev_key_123';
+};
 
 // Apply JWT middleware to all admin routes
 adminRouter.use('/*', (c, next) => {

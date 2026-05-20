@@ -11,6 +11,7 @@ export type Bindings = {
   DB: D1Database;
   AI: any; // Ai type from '@cloudflare/workers-types' but we can use any for now
   JWT_SECRET?: string;
+  ENVIRONMENT?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();

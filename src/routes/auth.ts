@@ -7,13 +7,19 @@ import { eq } from 'drizzle-orm';
 
 type Bindings = {
   DB: D1Database;
-  JWT_SECRET: string;
+  JWT_SECRET?: string;
+  ENVIRONMENT?: string;
 };
 
 export const authRouter = new Hono<{ Bindings: Bindings }>();
 
-// Optional helper for getting secret (fallback for local dev if not set)
-const getSecret = (env: Bindings) => env.JWT_SECRET || 'somobloom_super_secret_dev_key_123';
+const getSecret = (env: Bindings) => {
+  if (env.JWT_SECRET) return env.JWT_SECRET;
+  if (env.ENVIRONMENT === 'production') {
+    throw new Error('FATAL SECURITY ERROR: JWT_SECRET environment variable is required in production.');
+  }
+  return 'somobloom_super_secret_dev_key_123';
+};
 
 authRouter.post('/register-school', async (c) => {
   const body = await c.req.json();
