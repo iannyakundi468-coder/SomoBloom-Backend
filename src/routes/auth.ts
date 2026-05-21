@@ -3,7 +3,7 @@ import { sign } from 'hono/jwt';
 import { getDb } from '../db/client';
 import { users, schools, adminProfiles, teacherProfiles, studentProfiles, parentProfiles } from '../db/schema';
 import { hashPassword, verifyPassword, type JwtPayload } from '../lib/auth';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 
 type Bindings = {
   DB: D1Database;
@@ -23,7 +23,7 @@ const getSecret = (env: Bindings) => {
 
 authRouter.post('/register-school', async (c) => {
   const body = await c.req.json();
-  const { schoolName, adminName, email, password } = body;
+  const { schoolName, adminName, email, phoneNumber, password } = body;
 
   if (!schoolName || !adminName || !email || !password) {
     return c.json({ error: 'Missing required fields' }, 400);
@@ -32,9 +32,15 @@ authRouter.post('/register-school', async (c) => {
   const db = getDb(c.env.DB);
   
   // 1. Check if user already exists
-  const existingUser = await db.select().from(users).where(eq(users.email, email)).get();
+  let existingUser;
+  if (phoneNumber) {
+    existingUser = await db.select().from(users).where(or(eq(users.email, email), eq(users.phoneNumber, phoneNumber))).get();
+  } else {
+    existingUser = await db.select().from(users).where(eq(users.email, email)).get();
+  }
+  
   if (existingUser) {
-    return c.json({ error: 'User with this email already exists' }, 400);
+    return c.json({ error: 'User with this email or phone number already exists' }, 400);
   }
 
   const schoolId = crypto.randomUUID();
@@ -53,6 +59,7 @@ authRouter.post('/register-school', async (c) => {
       db.insert(users).values({
         id: userId,
         email,
+        phoneNumber: phoneNumber || null,
         passwordHash: hashedPassword,
       }),
       db.insert(adminProfiles).values({
@@ -93,16 +100,21 @@ authRouter.post('/register-school', async (c) => {
 
 authRouter.post('/login', async (c) => {
   const body = await c.req.json();
-  const { email, password } = body;
+  const { email: identifier, password } = body;
 
-  if (!email || !password) {
-    return c.json({ error: 'Email and password are required' }, 400);
+  if (!identifier || !password) {
+    return c.json({ error: 'Email/Phone and password are required' }, 400);
   }
 
   const db = getDb(c.env.DB);
 
   // 1. Find user
-  const user = await db.select().from(users).where(eq(users.email, email)).get();
+  const user = await db.select().from(users).where(
+    or(
+      eq(users.email, identifier),
+      eq(users.phoneNumber, identifier)
+    )
+  ).get();
   if (!user) {
     return c.json({ error: 'Invalid credentials' }, 401);
   }

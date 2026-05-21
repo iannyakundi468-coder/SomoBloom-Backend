@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(), // UUID
   email: text('email').notNull().unique(),
+  phoneNumber: text('phone_number').unique(),
   passwordHash: text('password_hash').notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
