@@ -15,9 +15,9 @@ migrations_dir = "drizzle"
 binding = "AI" # Available as env.AI in the code
 
 # Set up Cloudflare R2 Bucket binding
-# [[r2_buckets]]
-# binding = "BUCKET"
-# bucket_name = "somobloom-media"
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "somobloom-media"
 
 # Set up Analytics Engine binding
 [[analytics_engine_datasets]]
