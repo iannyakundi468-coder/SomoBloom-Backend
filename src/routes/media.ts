@@ -4,8 +4,8 @@ import type { Bindings } from '../index';
 export const mediaRouter = new Hono<{ Bindings: Bindings }>();
 
 mediaRouter.post('/upload', async (c) => {
-  if (!c.env.BUCKET) {
-    return c.json({ error: 'R2 storage is currently unavailable' }, 500);
+  if (!c.env.MEDIA_KV) {
+    return c.json({ error: 'KV storage is currently unavailable' }, 500);
   }
 
   try {
@@ -27,8 +27,8 @@ mediaRouter.post('/upload', async (c) => {
     const ext = file.name.split('.').pop() || 'png';
     const filename = `${crypto.randomUUID()}.${ext}`;
 
-    await c.env.BUCKET.put(filename, await file.arrayBuffer(), {
-      httpMetadata: {
+    await c.env.MEDIA_KV.put(filename, await file.arrayBuffer(), {
+      metadata: {
         contentType: file.type,
       },
     });
@@ -38,30 +38,30 @@ mediaRouter.post('/upload', async (c) => {
       url: `/api/media/${filename}`
     }, 201);
   } catch (error: any) {
-    console.error('Failed to upload file to R2:', error);
+    console.error('Failed to upload file to KV:', error);
     return c.json({ error: 'Failed to upload file' }, 500);
   }
 });
 
 mediaRouter.get('/:key', async (c) => {
   const { key } = c.req.param();
-  if (!c.env.BUCKET) {
-    return c.json({ error: 'R2 storage is currently unavailable' }, 500);
+  if (!c.env.MEDIA_KV) {
+    return c.json({ error: 'KV storage is currently unavailable' }, 500);
   }
 
   try {
-    const object = await c.env.BUCKET.get(key);
-    if (!object) {
+    const { value, metadata } = await c.env.MEDIA_KV.getWithMetadata<{contentType: string}>(key, 'arrayBuffer');
+    if (!value) {
       return c.json({ error: 'File not found' }, 404);
     }
 
     const headers = new Headers();
-    object.writeHttpMetadata(headers);
-    headers.set('etag', object.httpEtag);
     
     // Auto-detect standard content types
     const ext = key.split('.').pop()?.toLowerCase();
-    if (ext === 'png') {
+    if (metadata && metadata.contentType) {
+      headers.set('Content-Type', metadata.contentType);
+    } else if (ext === 'png') {
       headers.set('Content-Type', 'image/png');
     } else if (ext === 'jpg' || ext === 'jpeg') {
       headers.set('Content-Type', 'image/jpeg');
@@ -71,11 +71,11 @@ mediaRouter.get('/:key', async (c) => {
       headers.set('Content-Type', 'image/gif');
     }
 
-    return new Response(object.body, {
+    return new Response(value, {
       headers,
     });
   } catch (error: any) {
-    console.error('Failed to retrieve file from R2:', error);
+    console.error('Failed to retrieve file from KV:', error);
     return c.json({ error: 'Failed to retrieve file' }, 500);
   }
 });

@@ -11,7 +11,7 @@ import { mediaRouter } from './routes/media';
 export type Bindings = {
   DB: D1Database;
   AI: any; // Ai type from '@cloudflare/workers-types' but we can use any for now
-  BUCKET: R2Bucket;
+  MEDIA_KV: KVNamespace;
   JWT_SECRET?: string;
   ENVIRONMENT?: string;
 };
