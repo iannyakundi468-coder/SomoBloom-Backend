@@ -168,6 +168,7 @@ CREATE TABLE `schools` (
 CREATE UNIQUE INDEX `schools_domain_slug_unique` ON `schools` (`domain_slug`);--> statement-breakpoint
 CREATE TABLE `student_enrollment_submissions` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`school_id` text NOT NULL,
 	`timestamp` text,
 	`admission_number` text,
 	`first_name` text,
@@ -180,7 +181,8 @@ CREATE TABLE `student_enrollment_submissions` (
 	`email` text,
 	`emergency_number` text,
 	`status` text DEFAULT 'pending' NOT NULL,
-	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
+	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	FOREIGN KEY (`school_id`) REFERENCES `schools`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE TABLE `student_profiles` (

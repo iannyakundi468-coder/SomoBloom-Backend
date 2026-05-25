@@ -4,7 +4,7 @@ import { getDb } from '../../db/client';
 import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 
 export const adminRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
@@ -258,9 +258,10 @@ adminRouter.post('/classes/:classId/enrollments', async (c) => {
 });
 
 adminRouter.get('/enrollments', async (c) => {
+  const payload = c.get('jwtPayload');
   const db = getDb(c.env.DB);
   try {
-    const submissions = await db.select().from(studentEnrollmentSubmissions).all();
+    const submissions = await db.select().from(studentEnrollmentSubmissions).where(eq(studentEnrollmentSubmissions.schoolId, payload.schoolId)).all();
     return c.json({ enrollments: submissions });
   } catch (error: any) {
     console.error('Failed to fetch enrollments:', error);
@@ -270,6 +271,7 @@ adminRouter.get('/enrollments', async (c) => {
 
 // GET /api/admin/users
 adminRouter.get('/users', async (c) => {
+  const payload = c.get('jwtPayload');
   const db = getDb(c.env.DB);
   try {
     const admins = await db.select({
@@ -281,6 +283,7 @@ adminRouter.get('/users', async (c) => {
     })
     .from(adminProfiles)
     .innerJoin(users, eq(adminProfiles.userId, users.id))
+    .where(eq(adminProfiles.schoolId, payload.schoolId))
     .all();
 
     const teachers = await db.select({
@@ -293,6 +296,7 @@ adminRouter.get('/users', async (c) => {
     })
     .from(teacherProfiles)
     .innerJoin(users, eq(teacherProfiles.userId, users.id))
+    .where(eq(teacherProfiles.schoolId, payload.schoolId))
     .all();
 
     const students = await db.select({
@@ -305,6 +309,7 @@ adminRouter.get('/users', async (c) => {
     })
     .from(studentProfiles)
     .innerJoin(users, eq(studentProfiles.userId, users.id))
+    .where(eq(studentProfiles.schoolId, payload.schoolId))
     .all();
 
     const parents = await db.select({
@@ -317,6 +322,7 @@ adminRouter.get('/users', async (c) => {
     })
     .from(parentProfiles)
     .innerJoin(users, eq(parentProfiles.userId, users.id))
+    .where(eq(parentProfiles.schoolId, payload.schoolId))
     .all();
 
     
@@ -388,29 +394,50 @@ adminRouter.put('/users/:id', async (c) => {
 
   const db = getDb(c.env.DB);
   try {
+    const payload = c.get('jwtPayload');
     let user = await db.select().from(users).where(eq(users.id, id)).get();
     let userId = id;
+    let userSchoolId = null;
 
     if (!user) {
       const teacher = await db.select().from(teacherProfiles).where(eq(teacherProfiles.id, id)).get();
       if (teacher) {
         userId = teacher.userId;
+        userSchoolId = teacher.schoolId;
       } else {
         const student = await db.select().from(studentProfiles).where(eq(studentProfiles.id, id)).get();
         if (student) {
           userId = student.userId;
+          userSchoolId = student.schoolId;
         } else {
           const parent = await db.select().from(parentProfiles).where(eq(parentProfiles.id, id)).get();
           if (parent) {
             userId = parent.userId;
+            userSchoolId = parent.schoolId;
           }
         }
       }
       user = await db.select().from(users).where(eq(users.id, userId)).get();
+    } else {
+      // If found by user id, we still need to verify their school
+      const teacher = await db.select().from(teacherProfiles).where(eq(teacherProfiles.userId, userId)).get();
+      if (teacher) userSchoolId = teacher.schoolId;
+      else {
+        const student = await db.select().from(studentProfiles).where(eq(studentProfiles.userId, userId)).get();
+        if (student) userSchoolId = student.schoolId;
+        else {
+          const parent = await db.select().from(parentProfiles).where(eq(parentProfiles.userId, userId)).get();
+          if (parent) userSchoolId = parent.schoolId;
+        }
+      }
     }
 
     if (!user) {
       return c.json({ error: 'User not found' }, 404);
+    }
+    
+    if (userSchoolId && userSchoolId !== payload.schoolId) {
+      return c.json({ error: 'Unauthorized: User does not belong to your school' }, 403);
     }
 
     const updates: Promise<any>[] = [];
@@ -460,24 +487,37 @@ adminRouter.delete('/users/:id', async (c) => {
   const { id } = c.req.param();
   const db = getDb(c.env.DB);
   try {
+    const payload = c.get('jwtPayload');
     let user = await db.select().from(users).where(eq(users.id, id)).get();
     let userId = id;
+    let userSchoolId = null;
 
     if (!user) {
       const teacher = await db.select().from(teacherProfiles).where(eq(teacherProfiles.id, id)).get();
-      if (teacher) {
-        userId = teacher.userId;
-      } else {
+      if (teacher) { userId = teacher.userId; userSchoolId = teacher.schoolId; }
+      else {
         const student = await db.select().from(studentProfiles).where(eq(studentProfiles.id, id)).get();
-        if (student) {
-          userId = student.userId;
-        } else {
+        if (student) { userId = student.userId; userSchoolId = student.schoolId; }
+        else {
           const parent = await db.select().from(parentProfiles).where(eq(parentProfiles.id, id)).get();
-          if (parent) {
-            userId = parent.userId;
-          }
+          if (parent) { userId = parent.userId; userSchoolId = parent.schoolId; }
         }
       }
+    } else {
+      const teacher = await db.select().from(teacherProfiles).where(eq(teacherProfiles.userId, userId)).get();
+      if (teacher) userSchoolId = teacher.schoolId;
+      else {
+        const student = await db.select().from(studentProfiles).where(eq(studentProfiles.userId, userId)).get();
+        if (student) userSchoolId = student.schoolId;
+        else {
+          const parent = await db.select().from(parentProfiles).where(eq(parentProfiles.userId, userId)).get();
+          if (parent) userSchoolId = parent.schoolId;
+        }
+      }
+    }
+    
+    if (userSchoolId && userSchoolId !== payload.schoolId) {
+      return c.json({ error: 'Unauthorized: User does not belong to your school' }, 403);
     }
 
     await db.batch([
@@ -499,10 +539,11 @@ adminRouter.put('/classes/:id', async (c) => {
   const { id } = c.req.param();
   const body = await c.req.json();
   const { name, teacherId } = body;
+  const payload = c.get('jwtPayload');
 
   const db = getDb(c.env.DB);
   try {
-    const classItem = await db.select().from(classes).where(eq(classes.id, id)).get();
+    const classItem = await db.select().from(classes).where(and(eq(classes.id, id), eq(classes.schoolId, payload.schoolId))).get();
     if (!classItem) {
       return c.json({ error: 'Class not found' }, 404);
     }
@@ -522,8 +563,12 @@ adminRouter.put('/classes/:id', async (c) => {
 // DELETE /api/admin/classes/:id
 adminRouter.delete('/classes/:id', async (c) => {
   const { id } = c.req.param();
+  const payload = c.get('jwtPayload');
   const db = getDb(c.env.DB);
   try {
+    const cls = await db.select().from(classes).where(and(eq(classes.id, id), eq(classes.schoolId, payload.schoolId))).get();
+    if (!cls) return c.json({ error: 'Class not found' }, 404);
+    
     await db.batch([
       db.delete(enrollments).where(eq(enrollments.classId, id)),
       db.delete(classes).where(eq(classes.id, id))

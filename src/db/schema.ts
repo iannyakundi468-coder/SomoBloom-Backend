@@ -117,6 +117,7 @@ export const announcements = sqliteTable('announcements', {
 // --- ENROLLMENT SUBMISSIONS (Raw Data) ---
 export const studentEnrollmentSubmissions = sqliteTable('student_enrollment_submissions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  schoolId: text('school_id').references(() => schools.id).notNull(),
   timestamp: text('timestamp'),
   admissionNumber: text('admission_number'),
   firstName: text('first_name'),
