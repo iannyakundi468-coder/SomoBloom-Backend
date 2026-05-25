@@ -3,6 +3,7 @@ import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
 import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
+import { decryptData } from '../../lib/encryption';
 import { eq, and, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 
@@ -14,6 +15,14 @@ const getSecret = (env: Bindings) => {
     throw new Error('FATAL SECURITY ERROR: JWT_SECRET environment variable is required in production.');
   }
   return 'somobloom_super_secret_dev_key_123';
+};
+
+const getEncryptionSecret = (env: Bindings) => {
+  if (env.ENCRYPTION_SECRET) return env.ENCRYPTION_SECRET;
+  if (env.ENVIRONMENT === 'production') {
+    throw new Error('FATAL SECURITY ERROR: ENCRYPTION_SECRET environment variable is required in production.');
+  }
+  return 'somobloom_super_secret_encryption_key_123';
 };
 
 // Apply JWT middleware
@@ -70,7 +79,7 @@ teacherRouter.get('/classes', async (c) => {
       id: studentProfiles.id,
       name: studentProfiles.name,
       avatarUrl: studentProfiles.avatarUrl,
-      email: users.email
+      encryptedEmail: users.encryptedEmail
     })
     .from(enrollments)
     .innerJoin(studentProfiles, eq(enrollments.studentProfileId, studentProfiles.id))
@@ -98,10 +107,12 @@ teacherRouter.get('/classes', async (c) => {
     .all();
 
     // Enrich teacher classes completely in-memory using highly-performant JavaScript filters
-    const enrichedClasses = teacherClasses.map((cls: any) => {
+    const enrichedClasses = await Promise.all(teacherClasses.map(async (cls: any) => {
       const classStudents = allEnrollments.filter((e: any) => e.classId === cls.id);
+      const encryptionSecret = getEncryptionSecret(c.env);
 
-      const enrichedStudents = classStudents.map((stu: any) => {
+      const enrichedStudents = await Promise.all(classStudents.map(async (stu: any) => {
+        const decryptedEmail = await decryptData(stu.encryptedEmail, encryptionSecret);
         // Attendance logs for this specific student in this specific class
         const studentLogs = allAttendance.filter((l: any) => l.classId === cls.id && l.studentProfileId === stu.id);
         const total = studentLogs.length;
@@ -137,14 +148,14 @@ teacherRouter.get('/classes', async (c) => {
         return {
           id: stu.id,
           name: stu.name,
-          email: stu.email,
+          email: decryptedEmail,
           avatarUrl: stu.avatarUrl,
           status: 'active',
           portfolioCount: 3,
           attendance: { present, total },
           cbcAssessments: { strands, competencies }
         };
-      });
+      }));
 
       return {
         id: cls.id,
@@ -154,7 +165,7 @@ teacherRouter.get('/classes', async (c) => {
         role: 'home',
         students: enrichedStudents
       };
-    });
+    }));
 
     return c.json({ classes: enrichedClasses });
   } catch (err: any) {

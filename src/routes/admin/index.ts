@@ -3,6 +3,7 @@ import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
 import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
+import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { eq } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 
@@ -14,6 +15,14 @@ const getSecret = (env: Bindings) => {
     throw new Error('FATAL SECURITY ERROR: JWT_SECRET environment variable is required in production.');
   }
   return 'somobloom_super_secret_dev_key_123';
+};
+
+const getEncryptionSecret = (env: Bindings) => {
+  if (env.ENCRYPTION_SECRET) return env.ENCRYPTION_SECRET;
+  if (env.ENVIRONMENT === 'production') {
+    throw new Error('FATAL SECURITY ERROR: ENCRYPTION_SECRET environment variable is required in production.');
+  }
+  return 'somobloom_super_secret_encryption_key_123';
 };
 
 // Apply JWT middleware to all admin routes
@@ -59,9 +68,12 @@ adminRouter.post('/teachers', async (c) => {
   }
 
   const db = getDb(c.env.DB);
+  const encryptionSecret = getEncryptionSecret(c.env);
+  const emailHash = await hashIdentifier(email, encryptionSecret);
+  const encryptedEmail = await encryptData(email, encryptionSecret);
 
   // Check if email already exists
-  const existingUser = await db.select().from(users).where(eq(users.email, email)).get();
+  const existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
   if (existingUser) {
     return c.json({ error: 'User with this email already exists' }, 400);
   }
@@ -74,7 +86,8 @@ adminRouter.post('/teachers', async (c) => {
     await db.batch([
       db.insert(users).values({
         id: userId,
-        email,
+        emailHash,
+        encryptedEmail,
         passwordHash: hashedPassword,
       }),
       db.insert(teacherProfiles).values({
@@ -112,7 +125,11 @@ adminRouter.post('/students', async (c) => {
   }
 
   const db = getDb(c.env.DB);
-  const existingUser = await db.select().from(users).where(eq(users.email, email)).get();
+  const encryptionSecret = getEncryptionSecret(c.env);
+  const emailHash = await hashIdentifier(email, encryptionSecret);
+  const encryptedEmail = await encryptData(email, encryptionSecret);
+
+  const existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
   if (existingUser) {
     return c.json({ error: 'User with this email already exists' }, 400);
   }
@@ -123,7 +140,7 @@ adminRouter.post('/students', async (c) => {
 
   try {
     await db.batch([
-      db.insert(users).values({ id: userId, email, passwordHash: hashedPassword }),
+      db.insert(users).values({ id: userId, emailHash, encryptedEmail, passwordHash: hashedPassword }),
       db.insert(studentProfiles).values({
         id: studentProfileId,
         userId,
@@ -148,7 +165,11 @@ adminRouter.post('/parents', async (c) => {
   }
 
   const db = getDb(c.env.DB);
-  const existingUser = await db.select().from(users).where(eq(users.email, email)).get();
+  const encryptionSecret = getEncryptionSecret(c.env);
+  const emailHash = await hashIdentifier(email, encryptionSecret);
+  const encryptedEmail = await encryptData(email, encryptionSecret);
+
+  const existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
   if (existingUser) {
     return c.json({ error: 'User with this email already exists' }, 400);
   }
@@ -159,7 +180,7 @@ adminRouter.post('/parents', async (c) => {
 
   try {
     await db.batch([
-      db.insert(users).values({ id: userId, email, passwordHash: hashedPassword }),
+      db.insert(users).values({ id: userId, emailHash, encryptedEmail, passwordHash: hashedPassword }),
       db.insert(parentProfiles).values({
         id: parentProfileId,
         userId,
@@ -255,7 +276,7 @@ adminRouter.get('/users', async (c) => {
       id: adminProfiles.id,
       userId: adminProfiles.userId,
       name: adminProfiles.name,
-      email: users.email,
+      encryptedEmail: users.encryptedEmail,
       createdAt: adminProfiles.createdAt,
     })
     .from(adminProfiles)
@@ -266,7 +287,7 @@ adminRouter.get('/users', async (c) => {
       id: teacherProfiles.id,
       userId: teacherProfiles.userId,
       name: teacherProfiles.name,
-      email: users.email,
+      encryptedEmail: users.encryptedEmail,
       createdAt: teacherProfiles.createdAt,
       department: teacherProfiles.department,
     })
@@ -278,7 +299,7 @@ adminRouter.get('/users', async (c) => {
       id: studentProfiles.id,
       userId: studentProfiles.userId,
       name: studentProfiles.name,
-      email: users.email,
+      encryptedEmail: users.encryptedEmail,
       createdAt: studentProfiles.createdAt,
       studentIdNumber: studentProfiles.studentIdNumber,
     })
@@ -290,7 +311,7 @@ adminRouter.get('/users', async (c) => {
       id: parentProfiles.id,
       userId: parentProfiles.userId,
       name: parentProfiles.name,
-      email: users.email,
+      encryptedEmail: users.encryptedEmail,
       createdAt: parentProfiles.createdAt,
       phoneNumber: parentProfiles.phoneNumber,
     })
@@ -298,12 +319,21 @@ adminRouter.get('/users', async (c) => {
     .innerJoin(users, eq(parentProfiles.userId, users.id))
     .all();
 
-    const combinedUsers = [
+    
+    const encryptionSecret = getEncryptionSecret(c.env);
+
+    const decryptUserEmail = async (u: any) => {
+      const email = await decryptData(u.encryptedEmail, encryptionSecret);
+      const { encryptedEmail, ...rest } = u;
+      return { ...rest, email };
+    };
+
+    const combinedUsers = await Promise.all([
       ...admins.map(a => ({ ...a, role: 'admin', status: 'active' })),
       ...teachers.map(t => ({ ...t, role: 'teacher', status: 'active' })),
       ...students.map(s => ({ ...s, role: 'student', status: 'active' })),
       ...parents.map(p => ({ ...p, role: 'parent', status: 'active' }))
-    ];
+    ].map(decryptUserEmail));
 
     return c.json({ users: combinedUsers });
   } catch (error: any) {
@@ -384,9 +414,12 @@ adminRouter.put('/users/:id', async (c) => {
     }
 
     const updates: Promise<any>[] = [];
+    const encryptionSecret = getEncryptionSecret(c.env);
 
     if (email) {
-      updates.push(db.update(users).set({ email }).where(eq(users.id, userId)));
+      const emailHash = await hashIdentifier(email, encryptionSecret);
+      const encryptedEmail = await encryptData(email, encryptionSecret);
+      updates.push(db.update(users).set({ emailHash, encryptedEmail }).where(eq(users.id, userId)));
     }
 
     const teacher = await db.select().from(teacherProfiles).where(eq(teacherProfiles.userId, userId)).get();

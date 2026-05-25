@@ -3,6 +3,7 @@ import { jwt } from 'hono/jwt';
 import { getDb } from '../db/client';
 import { messages, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, users } from '../db/schema';
 import type { JwtPayload } from '../lib/auth';
+import { encryptData, decryptData } from '../lib/encryption';
 import { eq, or, desc } from 'drizzle-orm';
 import type { Bindings } from '../index';
 
@@ -14,6 +15,14 @@ const getSecret = (env: Bindings) => {
     throw new Error('FATAL SECURITY ERROR: JWT_SECRET environment variable is required in production.');
   }
   return 'somobloom_super_secret_dev_key_123';
+};
+
+const getEncryptionSecret = (env: any) => {
+  if (env.ENCRYPTION_SECRET) return env.ENCRYPTION_SECRET;
+  if (env.ENVIRONMENT === 'production') {
+    throw new Error('FATAL SECURITY ERROR: ENCRYPTION_SECRET environment variable is required in production.');
+  }
+  return 'somobloom_super_secret_encryption_key_123';
 };
 
 // Apply JWT middleware
@@ -60,9 +69,14 @@ messagesRouter.get('/', async (c) => {
       .all();
 
     // Resolve names for senders and receivers
+    const encryptionSecret = getEncryptionSecret(c.env);
+    
     const enrichedMessages = await Promise.all(rawMessages.map(async (msg: any) => {
       const senderProfile = await getUserProfile(db, msg.senderId);
       const receiverProfile = await getUserProfile(db, msg.receiverId);
+      
+      const decryptedSubject = msg.subject ? await decryptData(msg.subject, encryptionSecret) : 'No Subject';
+      const decryptedContent = msg.content ? await decryptData(msg.content, encryptionSecret) : '';
 
       return {
         id: msg.id,
@@ -72,8 +86,8 @@ messagesRouter.get('/', async (c) => {
         receiverId: msg.receiverId,
         receiver: receiverProfile.name,
         receiverRole: receiverProfile.role,
-        subject: msg.subject,
-        text: msg.content,
+        subject: decryptedSubject,
+        text: decryptedContent,
         read: msg.isRead,
         date: msg.createdAt
       };
@@ -130,14 +144,18 @@ messagesRouter.post('/', async (c) => {
     if (!schoolId) {
       return c.json({ error: 'Could not resolve school tenant association for active user' }, 400);
     }
+    
+    const encryptionSecret = getEncryptionSecret(c.env);
+    const encryptedSubject = await encryptData(subject || 'No Subject', encryptionSecret);
+    const encryptedContent = await encryptData(content, encryptionSecret);
 
     await db.insert(messages).values({
       id: messageId,
       schoolId,
       senderId,
       receiverId,
-      subject: subject || 'No Subject',
-      content,
+      subject: encryptedSubject,
+      content: encryptedContent,
       isRead: false
     });
 

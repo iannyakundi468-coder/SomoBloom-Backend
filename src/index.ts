@@ -12,7 +12,9 @@ export type Bindings = {
   DB: D1Database;
   AI: any; // Ai type from '@cloudflare/workers-types' but we can use any for now
   MEDIA_KV: KVNamespace;
+  BUCKET?: any;
   JWT_SECRET?: string;
+  ENCRYPTION_SECRET?: string;
   ENVIRONMENT?: string;
 };
 

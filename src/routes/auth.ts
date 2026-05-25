@@ -3,11 +3,13 @@ import { sign } from 'hono/jwt';
 import { getDb } from '../db/client';
 import { users, schools, adminProfiles, teacherProfiles, studentProfiles, parentProfiles } from '../db/schema';
 import { hashPassword, verifyPassword, type JwtPayload } from '../lib/auth';
+import { encryptData, decryptData, hashIdentifier } from '../lib/encryption';
 import { eq, or } from 'drizzle-orm';
 
 type Bindings = {
   DB: D1Database;
   JWT_SECRET?: string;
+  ENCRYPTION_SECRET?: string;
   ENVIRONMENT?: string;
 };
 
@@ -21,6 +23,14 @@ const getSecret = (env: Bindings) => {
   return 'somobloom_super_secret_dev_key_123';
 };
 
+const getEncryptionSecret = (env: Bindings) => {
+  if (env.ENCRYPTION_SECRET) return env.ENCRYPTION_SECRET;
+  if (env.ENVIRONMENT === 'production') {
+    throw new Error('FATAL SECURITY ERROR: ENCRYPTION_SECRET environment variable is required in production.');
+  }
+  return 'somobloom_super_secret_encryption_key_123';
+};
+
 authRouter.post('/register-school', async (c) => {
   const body = await c.req.json();
   const { schoolName, adminName, email, phoneNumber, password } = body;
@@ -30,13 +40,17 @@ authRouter.post('/register-school', async (c) => {
   }
 
   const db = getDb(c.env.DB);
+  const encryptionSecret = getEncryptionSecret(c.env);
   
+  const emailHash = await hashIdentifier(email, encryptionSecret);
+  const phoneNumberHash = phoneNumber ? await hashIdentifier(phoneNumber, encryptionSecret) : null;
+
   // 1. Check if user already exists
   let existingUser;
-  if (phoneNumber) {
-    existingUser = await db.select().from(users).where(or(eq(users.email, email), eq(users.phoneNumber, phoneNumber))).get();
+  if (phoneNumberHash) {
+    existingUser = await db.select().from(users).where(or(eq(users.emailHash, emailHash), eq(users.phoneNumberHash, phoneNumberHash))).get();
   } else {
-    existingUser = await db.select().from(users).where(eq(users.email, email)).get();
+    existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
   }
   
   if (existingUser) {
@@ -48,6 +62,9 @@ authRouter.post('/register-school', async (c) => {
   const adminProfileId = crypto.randomUUID();
   
   const hashedPassword = await hashPassword(password);
+  
+  const encryptedEmail = await encryptData(email, encryptionSecret);
+  const encryptedPhoneNumber = phoneNumber ? await encryptData(phoneNumber, encryptionSecret) : null;
 
   try {
     // Start a transaction to insert school, user, and admin profile
@@ -58,8 +75,10 @@ authRouter.post('/register-school', async (c) => {
       }),
       db.insert(users).values({
         id: userId,
-        email,
-        phoneNumber: phoneNumber || null,
+        emailHash,
+        encryptedEmail,
+        phoneNumberHash,
+        encryptedPhoneNumber,
         passwordHash: hashedPassword,
       }),
       db.insert(adminProfiles).values({
@@ -107,12 +126,14 @@ authRouter.post('/login', async (c) => {
   }
 
   const db = getDb(c.env.DB);
+  const encryptionSecret = getEncryptionSecret(c.env);
+  const identifierHash = await hashIdentifier(identifier, encryptionSecret);
 
   // 1. Find user
   const user = await db.select().from(users).where(
     or(
-      eq(users.email, identifier),
-      eq(users.phoneNumber, identifier)
+      eq(users.emailHash, identifierHash),
+      eq(users.phoneNumberHash, identifierHash)
     )
   ).get();
   if (!user) {
@@ -172,12 +193,14 @@ authRouter.post('/login', async (c) => {
 
   const token = await sign(payload, getSecret(c.env), 'HS256');
 
+  const decryptedEmail = await decryptData(user.encryptedEmail, encryptionSecret);
+
   return c.json({
     message: 'Login successful',
     token,
     user: {
       id: user.id,
-      email: user.email,
+      email: decryptedEmail,
       name: userProfileName,
       role: userRole,
       schoolId: userSchoolId

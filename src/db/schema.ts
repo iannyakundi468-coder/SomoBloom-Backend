@@ -4,8 +4,10 @@ import { sql } from 'drizzle-orm';
 // --- GLOBAL IDENTITIES ---
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(), // UUID
-  email: text('email').notNull().unique(),
-  phoneNumber: text('phone_number').unique(),
+  emailHash: text('email_hash').notNull().unique(),
+  encryptedEmail: text('encrypted_email').notNull(),
+  phoneNumberHash: text('phone_number_hash').unique(),
+  encryptedPhoneNumber: text('encrypted_phone_number'),
   passwordHash: text('password_hash').notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
@@ -166,3 +168,38 @@ export const portfolioEvidence = sqliteTable('portfolio_evidence', {
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+// --- FINANCIALS (PAYMENTS & FEES) ---
+export const payments = sqliteTable('payments', {
+  id: text('id').primaryKey(),
+  schoolId: text('school_id').references(() => schools.id).notNull(),
+  studentProfileId: text('student_profile_id').references(() => studentProfiles.id),
+  parentName: text('parent_name'),
+  amount: integer('amount').notNull(),
+  method: text('method').notNull(),
+  status: text('status', { enum: ['successful', 'failed', 'overdue'] }).notNull(),
+  term: text('term'),
+  reference: text('reference').unique(),
+  date: text('date').notNull(),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// --- ACTIVITY LOGS ---
+export const activityLogs = sqliteTable('activity_logs', {
+  id: text('id').primaryKey(),
+  schoolId: text('school_id').references(() => schools.id).notNull(),
+  user: text('user').notNull(),
+  action: text('action').notNull(),
+  detail: text('detail'),
+  color: text('color'),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// --- AUDIT LOGS ---
+export const auditLogs = sqliteTable('audit_logs', {
+  id: text('id').primaryKey(),
+  schoolId: text('school_id').references(() => schools.id).notNull(),
+  user: text('user').notNull(),
+  action: text('action').notNull(),
+  category: text('category').notNull(),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
