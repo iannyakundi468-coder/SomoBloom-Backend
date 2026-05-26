@@ -1,4 +1,19 @@
+# Dependencies
 node_modules/
+
+# Cloudflare / Wrangler
 .wrangler/
 dist/
+.dev.vars
+
+# Environment Variables
 .env
+.env.*
+
+# Logs
+*.log
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
