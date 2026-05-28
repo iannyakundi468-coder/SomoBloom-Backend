@@ -116,43 +116,9 @@ adminRouter.post('/teachers', async (c) => {
 });
 
 adminRouter.post('/students', async (c) => {
-  const payload = c.get('jwtPayload');
-  const body = await c.req.json();
-  const { name, email, password, studentIdNumber } = body;
-
-  if (!name || !email || !password) {
-    return c.json({ error: 'Name, email, and password are required' }, 400);
-  }
-
-  const db = getDb(c.env.DB);
-  const encryptionSecret = getEncryptionSecret(c.env);
-  const emailHash = await hashIdentifier(email, encryptionSecret);
-  const encryptedEmail = await encryptData(email, encryptionSecret);
-
-  const existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
-  if (existingUser) {
-    return c.json({ error: 'User with this email already exists' }, 400);
-  }
-
-  const userId = crypto.randomUUID();
-  const studentProfileId = crypto.randomUUID();
-  const hashedPassword = await hashPassword(password);
-
-  try {
-    await db.batch([
-      db.insert(users).values({ id: userId, emailHash, encryptedEmail, passwordHash: hashedPassword }),
-      db.insert(studentProfiles).values({
-        id: studentProfileId,
-        userId,
-        schoolId: payload.schoolId,
-        name,
-        studentIdNumber
-      })
-    ]);
-    return c.json({ message: 'Student created successfully', student: { id: studentProfileId, userId, name, email } }, 201);
-  } catch (error: any) {
-    return c.json({ error: 'Failed to create student' }, 500);
-  }
+  return c.json({ 
+    error: 'Student creation is restricted to Class Teachers. Please use the Teacher Portal or the /teacher/classes/:classId/students endpoint.' 
+  }, 403);
 });
 
 adminRouter.post('/parents', async (c) => {

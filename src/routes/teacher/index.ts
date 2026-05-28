@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
 import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence } from '../../db/schema';
-import type { JwtPayload } from '../../lib/auth';
-import { decryptData } from '../../lib/encryption';
+import { hashPassword, type JwtPayload } from '../../lib/auth';
+import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { eq, and, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 
@@ -171,6 +171,61 @@ teacherRouter.get('/classes', async (c) => {
   } catch (err: any) {
     console.error('Failed to fetch enriched teacher classes:', err);
     return c.json({ error: 'Failed to fetch teacher classes' }, 500);
+  }
+});
+
+// Create a new student and enroll them in the class
+teacherRouter.post('/classes/:classId/students', async (c) => {
+  const payload = c.get('jwtPayload');
+  const { classId } = c.req.param();
+  const body = await c.req.json();
+  const { name, email, password, studentIdNumber } = body;
+
+  if (!name || !email || !password) {
+    return c.json({ error: 'Name, email, and password are required' }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  
+  // Verify that the teacher calling this owns the class
+  const teacherProfile = await db.select().from(teacherProfiles).where(eq(teacherProfiles.userId, payload.sub)).get();
+  if (!teacherProfile) return c.json({ error: 'Teacher profile not found' }, 404);
+
+  const targetClass = await db.select().from(classes).where(and(eq(classes.id, classId), eq(classes.teacherProfileId, teacherProfile.id))).get();
+  if (!targetClass) return c.json({ error: 'Unauthorized: You are not the assigned teacher for this class' }, 403);
+
+  const encryptionSecret = getEncryptionSecret(c.env);
+  const emailHash = await hashIdentifier(email, encryptionSecret);
+  const encryptedEmail = await encryptData(email, encryptionSecret);
+
+  const existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
+  if (existingUser) {
+    return c.json({ error: 'User with this email already exists' }, 400);
+  }
+
+  const userId = crypto.randomUUID();
+  const studentProfileId = crypto.randomUUID();
+  const hashedPassword = await hashPassword(password);
+
+  try {
+    await db.batch([
+      db.insert(users).values({ id: userId, emailHash, encryptedEmail, passwordHash: hashedPassword }),
+      db.insert(studentProfiles).values({
+        id: studentProfileId,
+        userId,
+        schoolId: payload.schoolId,
+        name,
+        studentIdNumber
+      }),
+      db.insert(enrollments).values({
+        classId,
+        studentProfileId
+      })
+    ]);
+    return c.json({ message: 'Student created and enrolled successfully', student: { id: studentProfileId, userId, name, email } }, 201);
+  } catch (error: any) {
+    console.error('Failed to create student:', error);
+    return c.json({ error: 'Failed to create student' }, 500);
   }
 });
 
