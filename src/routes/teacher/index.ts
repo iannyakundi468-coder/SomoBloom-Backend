@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence } from '../../db/schema';
+import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence, messages } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { eq, and, inArray } from 'drizzle-orm';
@@ -566,3 +566,31 @@ teacherRouter.post('/portfolio/upload', async (c) => {
   }
 });
 
+// Send an in-app message
+teacherRouter.post('/messages', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { receiverId, subject, content } = body;
+
+  if (!receiverId || !content) {
+    return c.json({ error: 'Receiver ID and content are required' }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  const messageId = crypto.randomUUID();
+
+  try {
+    await db.insert(messages).values({
+      id: messageId,
+      schoolId: payload.schoolId,
+      senderId: payload.sub,
+      receiverId,
+      subject: subject || 'No Subject',
+      content
+    });
+    return c.json({ message: 'Message sent successfully', messageId }, 201);
+  } catch (error: any) {
+    console.error('Failed to send message:', error);
+    return c.json({ error: 'Failed to send message' }, 500);
+  }
+});
