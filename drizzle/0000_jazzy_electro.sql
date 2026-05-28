@@ -1,4 +1,4 @@
-CREATE TABLE `activity_logs` (
+CREATE TABLE IF NOT EXISTS `activity_logs` (
 	`id` text PRIMARY KEY NOT NULL,
 	`school_id` text NOT NULL,
 	`user` text NOT NULL,
@@ -9,7 +9,7 @@ CREATE TABLE `activity_logs` (
 	FOREIGN KEY (`school_id`) REFERENCES `schools`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `admin_profiles` (
+CREATE TABLE IF NOT EXISTS `admin_profiles` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`school_id` text NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE `admin_profiles` (
 	FOREIGN KEY (`school_id`) REFERENCES `schools`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `announcements` (
+CREATE TABLE IF NOT EXISTS `announcements` (
 	`id` text PRIMARY KEY NOT NULL,
 	`school_id` text NOT NULL,
 	`author_profile_id` text,
@@ -31,7 +31,7 @@ CREATE TABLE `announcements` (
 	FOREIGN KEY (`school_id`) REFERENCES `schools`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `assignments` (
+CREATE TABLE IF NOT EXISTS `assignments` (
 	`id` text PRIMARY KEY NOT NULL,
 	`class_id` text NOT NULL,
 	`title` text NOT NULL,
@@ -41,7 +41,7 @@ CREATE TABLE `assignments` (
 	FOREIGN KEY (`class_id`) REFERENCES `classes`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `attendance` (
+CREATE TABLE IF NOT EXISTS `attendance` (
 	`id` text PRIMARY KEY NOT NULL,
 	`class_id` text NOT NULL,
 	`student_profile_id` text NOT NULL,
@@ -53,7 +53,7 @@ CREATE TABLE `attendance` (
 	FOREIGN KEY (`student_profile_id`) REFERENCES `student_profiles`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `audit_logs` (
+CREATE TABLE IF NOT EXISTS `audit_logs` (
 	`id` text PRIMARY KEY NOT NULL,
 	`school_id` text NOT NULL,
 	`user` text NOT NULL,
@@ -63,7 +63,7 @@ CREATE TABLE `audit_logs` (
 	FOREIGN KEY (`school_id`) REFERENCES `schools`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `classes` (
+CREATE TABLE IF NOT EXISTS `classes` (
 	`id` text PRIMARY KEY NOT NULL,
 	`school_id` text NOT NULL,
 	`teacher_profile_id` text NOT NULL,
@@ -73,7 +73,7 @@ CREATE TABLE `classes` (
 	FOREIGN KEY (`teacher_profile_id`) REFERENCES `teacher_profiles`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `enrollments` (
+CREATE TABLE IF NOT EXISTS `enrollments` (
 	`class_id` text NOT NULL,
 	`student_profile_id` text NOT NULL,
 	PRIMARY KEY(`class_id`, `student_profile_id`),
@@ -81,7 +81,7 @@ CREATE TABLE `enrollments` (
 	FOREIGN KEY (`student_profile_id`) REFERENCES `student_profiles`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `grades` (
+CREATE TABLE IF NOT EXISTS `grades` (
 	`id` text PRIMARY KEY NOT NULL,
 	`assignment_id` text NOT NULL,
 	`student_profile_id` text NOT NULL,
@@ -92,7 +92,7 @@ CREATE TABLE `grades` (
 	FOREIGN KEY (`student_profile_id`) REFERENCES `student_profiles`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `messages` (
+CREATE TABLE IF NOT EXISTS `messages` (
 	`id` text PRIMARY KEY NOT NULL,
 	`school_id` text NOT NULL,
 	`sender_id` text NOT NULL,
@@ -106,7 +106,7 @@ CREATE TABLE `messages` (
 	FOREIGN KEY (`receiver_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `parent_profiles` (
+CREATE TABLE IF NOT EXISTS `parent_profiles` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`school_id` text NOT NULL,
@@ -118,7 +118,7 @@ CREATE TABLE `parent_profiles` (
 	FOREIGN KEY (`school_id`) REFERENCES `schools`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `parent_student_relations` (
+CREATE TABLE IF NOT EXISTS `parent_student_relations` (
 	`parent_profile_id` text NOT NULL,
 	`student_profile_id` text NOT NULL,
 	PRIMARY KEY(`parent_profile_id`, `student_profile_id`),
@@ -126,7 +126,7 @@ CREATE TABLE `parent_student_relations` (
 	FOREIGN KEY (`student_profile_id`) REFERENCES `student_profiles`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `payments` (
+CREATE TABLE IF NOT EXISTS `payments` (
 	`id` text PRIMARY KEY NOT NULL,
 	`school_id` text NOT NULL,
 	`student_profile_id` text,
@@ -142,8 +142,8 @@ CREATE TABLE `payments` (
 	FOREIGN KEY (`student_profile_id`) REFERENCES `student_profiles`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `payments_reference_unique` ON `payments` (`reference`);--> statement-breakpoint
-CREATE TABLE `portfolio_evidence` (
+CREATE UNIQUE INDEX IF NOT EXISTS `payments_reference_unique` ON `payments` (`reference`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `portfolio_evidence` (
 	`id` text PRIMARY KEY NOT NULL,
 	`class_id` text NOT NULL,
 	`student_profile_id` text NOT NULL,
@@ -157,7 +157,7 @@ CREATE TABLE `portfolio_evidence` (
 	FOREIGN KEY (`student_profile_id`) REFERENCES `student_profiles`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `schools` (
+CREATE TABLE IF NOT EXISTS `schools` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`domain_slug` text,
@@ -165,8 +165,8 @@ CREATE TABLE `schools` (
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `schools_domain_slug_unique` ON `schools` (`domain_slug`);--> statement-breakpoint
-CREATE TABLE `student_enrollment_submissions` (
+CREATE UNIQUE INDEX IF NOT EXISTS `schools_domain_slug_unique` ON `schools` (`domain_slug`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `student_enrollment_submissions` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`school_id` text NOT NULL,
 	`timestamp` text,
@@ -185,7 +185,7 @@ CREATE TABLE `student_enrollment_submissions` (
 	FOREIGN KEY (`school_id`) REFERENCES `schools`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `student_profiles` (
+CREATE TABLE IF NOT EXISTS `student_profiles` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`school_id` text NOT NULL,
@@ -197,7 +197,7 @@ CREATE TABLE `student_profiles` (
 	FOREIGN KEY (`school_id`) REFERENCES `schools`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `teacher_profiles` (
+CREATE TABLE IF NOT EXISTS `teacher_profiles` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
 	`school_id` text NOT NULL,
@@ -209,7 +209,7 @@ CREATE TABLE `teacher_profiles` (
 	FOREIGN KEY (`school_id`) REFERENCES `schools`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `users` (
+CREATE TABLE IF NOT EXISTS `users` (
 	`id` text PRIMARY KEY NOT NULL,
 	`email_hash` text NOT NULL,
 	`encrypted_email` text NOT NULL,
@@ -220,5 +220,5 @@ CREATE TABLE `users` (
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `users_email_hash_unique` ON `users` (`email_hash`);--> statement-breakpoint
-CREATE UNIQUE INDEX `users_phone_number_hash_unique` ON `users` (`phone_number_hash`);
+CREATE UNIQUE INDEX IF NOT EXISTS `users_email_hash_unique` ON `users` (`email_hash`);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS `users_phone_number_hash_unique` ON `users` (`phone_number_hash`);
