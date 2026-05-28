@@ -1,4 +1,5 @@
 const API_URL = 'https://somobloombackend.solianwolves.com/api';
+const delay = ms => new Promise(res => setTimeout(res, ms));
 
 async function seed() {
   try {
@@ -17,9 +18,11 @@ async function seed() {
       })
     });
     const adminData = await adminRes.json();
-    if (!adminRes.ok && adminData.error !== 'User with this email already exists') {
+    if (!adminRes.ok && !adminData.error.includes('already exists')) {
       throw new Error(`Admin creation failed: ${adminData.error}`);
     }
+
+    await delay(2500);
 
     // Login as admin to get token
     const loginRes = await fetch(`${API_URL}/auth/login`, {
@@ -35,6 +38,8 @@ async function seed() {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${adminToken}`
     };
+
+    await delay(2500);
 
     // 2. Create Teacher
     console.log('Creating teacher...');
@@ -57,6 +62,8 @@ async function seed() {
       console.log('Teacher might already exist');
     }
 
+    await delay(2500);
+
     // 3. Create Students
     console.log('Creating students...');
     const studentsData = [
@@ -77,8 +84,10 @@ async function seed() {
         studentIds.push(data.student.id);
         console.log(`✅ Student created: ${student.name}`);
       } else {
-        console.log(`Student ${student.name} might already exist`);
+        const text = await res.text();
+        console.log(`❌ Failed to create student ${student.name}: Status ${res.status} - ${text}`);
       }
+      await delay(2500);
     }
 
     // 4. Create Parents
@@ -101,8 +110,10 @@ async function seed() {
         parentIds.push(data.parent.id);
         console.log(`✅ Parent created: ${parent.name}`);
       } else {
-        console.log(`Parent ${parent.name} might already exist`);
+        const text = await res.text();
+        console.log(`❌ Failed to create parent ${parent.name}: Status ${res.status} - ${text}`);
       }
+      await delay(2500);
     }
 
     // 5. Link entities and enroll in classes
