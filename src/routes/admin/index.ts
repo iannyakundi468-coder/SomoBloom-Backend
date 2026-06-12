@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions, activityLogs, auditLogs, schoolSettings, feeStructures } from '../../db/schema';
+import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions, activityLogs, auditLogs, schoolSettings, feeStructures, payments } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { eq, and, desc } from 'drizzle-orm';
@@ -737,5 +737,44 @@ adminRouter.put('/fees/structures/:id', async (c) => {
   } catch (error: any) {
     console.error('Failed to update fee structure:', error);
     return c.json({ error: 'Failed to update fee structure' }, 500);
+  }
+});
+
+// GET /api/admin/payments
+adminRouter.get('/payments', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  try {
+    const records = await db.select()
+      .from(payments)
+      .where(eq(payments.schoolId, payload.schoolId))
+      .orderBy(desc(payments.createdAt))
+      .all();
+
+    // The frontend expects the format: { id, date, student, parent, amount, method, status, term, ref }
+    // Join with studentProfiles to get student name
+    const formattedPayments = await Promise.all(records.map(async (p) => {
+      let studentName = 'Unknown Student';
+      if (p.studentProfileId) {
+        const student = await db.select().from(studentProfiles).where(eq(studentProfiles.id, p.studentProfileId)).get();
+        if (student) studentName = student.name;
+      }
+      return {
+        id: p.id,
+        date: p.date,
+        student: studentName,
+        parent: p.parentName || 'Unknown Parent',
+        amount: p.amount,
+        method: p.method,
+        status: p.status,
+        term: p.term || 'Term 2 2026',
+        ref: p.reference
+      };
+    }));
+
+    return c.json({ payments: formattedPayments });
+  } catch (error: any) {
+    console.error('Failed to fetch admin payments:', error);
+    return c.json({ error: 'Failed to fetch admin payments' }, 500);
   }
 });
