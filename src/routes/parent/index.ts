@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments, announcements, classes, teacherProfiles, enrollments, portfolioEvidence } from '../../db/schema';
+import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments, announcements, classes, teacherProfiles, enrollments, portfolioEvidence, payments, feeStructures } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
-import { eq, and, or } from 'drizzle-orm';
+import { eq, and, or, desc } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 
 export const parentRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
@@ -207,5 +207,120 @@ parentRouter.get('/students/:studentId/portfolio', async (c) => {
   } catch (error: any) {
     console.error('Failed to fetch parent child portfolio:', error);
     return c.json({ error: 'Failed to fetch child portfolio evidence' }, 500);
+  }
+});
+
+// Fetch student fees
+parentRouter.get('/students/:studentId/fees', async (c) => {
+  const { studentId } = c.req.param();
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+
+  try {
+    const profile = await db.select().from(parentProfiles).where(eq(parentProfiles.userId, payload.sub)).get();
+    if (!profile) return c.json({ error: 'Profile not found' }, 404);
+
+    const relation = await db.select().from(parentStudentRelations)
+      .where(and(eq(parentStudentRelations.parentProfileId, profile.id), eq(parentStudentRelations.studentProfileId, studentId)))
+      .get();
+    if (!relation) return c.json({ error: 'Not authorized' }, 403);
+
+    const enrollment = await db.select().from(enrollments)
+      .where(eq(enrollments.studentProfileId, studentId))
+      .get();
+    
+    let totalBalance = 40000;
+    let breakdown = [
+      { name: 'Tuition Fee', cost: 25000 },
+      { name: 'Meals & Food Program', cost: 6000 },
+      { name: 'Creative Activities & Sports', cost: 3500 },
+      { name: 'School Transport Bus', cost: 5500 }
+    ];
+
+    if (enrollment) {
+      const feeStruct = await db.select().from(feeStructures)
+        .where(and(eq(feeStructures.classId, enrollment.classId), eq(feeStructures.term, 'Term 2 2026')))
+        .get();
+      
+      if (feeStruct) {
+        totalBalance = feeStruct.totalAmount;
+        try {
+          breakdown = JSON.parse(feeStruct.breakdown);
+        } catch (e) {
+          console.error('Failed to parse breakdown:', e);
+        }
+      }
+    }
+
+    const studentPayments = await db.select()
+      .from(payments)
+      .where(and(eq(payments.studentProfileId, studentId), eq(payments.status, 'successful')))
+      .orderBy(desc(payments.createdAt))
+      .all();
+
+    const paidAmount = studentPayments.reduce((acc, p) => acc + p.amount, 0);
+    const currentBalance = Math.max(0, totalBalance - paidAmount);
+
+    const history = studentPayments.map(p => ({
+      id: p.id,
+      date: p.date,
+      ref: p.reference,
+      amount: p.amount,
+      method: p.method,
+      status: 'Paid'
+    }));
+
+    return c.json({
+      fees: {
+        totalBalance: currentBalance,
+        paidAmount,
+        currency: 'KES',
+        breakdown,
+        history
+      }
+    });
+  } catch (error: any) {
+    console.error('Failed to fetch fees:', error);
+    return c.json({ error: 'Failed to fetch fees' }, 500);
+  }
+});
+
+// Submit a payment
+parentRouter.post('/payments', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { studentId, amount, method } = body;
+  const db = getDb(c.env.DB);
+
+  try {
+    const profile = await db.select().from(parentProfiles).where(eq(parentProfiles.userId, payload.sub)).get();
+    if (!profile) return c.json({ error: 'Profile not found' }, 404);
+
+    const relation = await db.select().from(parentStudentRelations)
+      .where(and(eq(parentStudentRelations.parentProfileId, profile.id), eq(parentStudentRelations.studentProfileId, studentId)))
+      .get();
+    if (!relation) return c.json({ error: 'Not authorized' }, 403);
+
+    const paymentId = crypto.randomUUID();
+    const ref = `TXN-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+    const dt = new Date().toISOString().split('T')[0];
+
+    await db.insert(payments).values({
+      id: paymentId,
+      schoolId: profile.schoolId,
+      studentProfileId: studentId,
+      parentName: profile.name,
+      amount: parseFloat(amount),
+      method: method === 'mpesa' ? 'Mobile Money (M-PESA)' : method === 'card' ? 'Credit/Debit Card' : 'Bank Transfer',
+      status: 'successful',
+      term: 'Term 2 2026',
+      reference: ref,
+      date: dt
+    });
+
+    return c.json({ message: 'Payment recorded successfully' });
+  } catch (error: any) {
+    console.error('Failed to submit payment:', error);
+    return c.json({ error: 'Failed to submit payment' }, 500);
   }
 });

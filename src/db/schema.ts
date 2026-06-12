@@ -204,3 +204,31 @@ export const auditLogs = sqliteTable('audit_logs', {
   category: text('category').notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+// --- SETTINGS / CONFIG ---
+export const schoolSettings = sqliteTable('school_settings', {
+  schoolId: text('school_id').primaryKey().references(() => schools.id),
+  language: text('language').default('en').notNull(),
+  xpLevelUp: integer('xp_level_up').default(150).notNull(),
+  xpBadge: integer('xp_badge').default(300).notNull(),
+  badgesEnabled: integer('badges_enabled', { mode: 'boolean' }).default(true).notNull(),
+  leaderboardEnabled: integer('leaderboard_enabled', { mode: 'boolean' }).default(true).notNull(),
+  notifyPayment: integer('notify_payment', { mode: 'boolean' }).default(true).notNull(),
+  notifyPortfolio: integer('notify_portfolio', { mode: 'boolean' }).default(true).notNull(),
+  notifyAnnouncement: integer('notify_announcement', { mode: 'boolean' }).default(true).notNull(),
+  dataRetentionYears: integer('data_retention_years').default(5).notNull(),
+  allowParentMessaging: integer('allow_parent_messaging', { mode: 'boolean' }).default(true).notNull(),
+  allowStudentLeaderboard: integer('allow_student_leaderboard', { mode: 'boolean' }).default(true).notNull(),
+  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// --- FEE STRUCTURES ---
+export const feeStructures = sqliteTable('fee_structures', {
+  id: text('id').primaryKey(),
+  schoolId: text('school_id').references(() => schools.id).notNull(),
+  classId: text('class_id').references(() => classes.id).notNull(),
+  term: text('term').notNull(),
+  totalAmount: integer('total_amount').notNull(),
+  breakdown: text('breakdown').notNull(), // JSON string representing breakdown items
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});

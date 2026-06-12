@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions } from '../../db/schema';
+import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions, activityLogs, auditLogs, schoolSettings, feeStructures } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 
 export const adminRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
@@ -569,5 +569,173 @@ adminRouter.put('/me', async (c) => {
   } catch (error: any) {
     console.error('Failed to update admin profile:', error);
     return c.json({ error: 'Failed to update admin profile' }, 500);
+  }
+});
+
+// GET /api/admin/activity
+adminRouter.get('/activity', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  try {
+    const logs = await db.select().from(activityLogs).where(eq(activityLogs.schoolId, payload.schoolId)).orderBy(desc(activityLogs.createdAt)).limit(50).all();
+    const formatted = logs.map(l => {
+      const dt = new Date(l.createdAt);
+      return {
+        id: l.id,
+        user: l.user,
+        action: l.action,
+        detail: l.detail,
+        color: l.color || '#6366f1',
+        time: `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
+      };
+    });
+    return c.json({ activity: formatted });
+  } catch (error: any) {
+    console.error('Failed to fetch activity logs:', error);
+    return c.json({ error: 'Failed to fetch activity logs' }, 500);
+  }
+});
+
+// GET /api/admin/audit
+adminRouter.get('/audit', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  try {
+    const logs = await db.select().from(auditLogs).where(eq(auditLogs.schoolId, payload.schoolId)).orderBy(desc(auditLogs.createdAt)).limit(100).all();
+    const formatted = logs.map(l => {
+      const dt = new Date(l.createdAt);
+      return {
+        id: l.id,
+        time: `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`,
+        user: l.user,
+        action: l.action,
+        category: l.category
+      };
+    });
+    return c.json({ auditLog: formatted });
+  } catch (error: any) {
+    console.error('Failed to fetch audit logs:', error);
+    return c.json({ error: 'Failed to fetch audit logs' }, 500);
+  }
+});
+
+// GET /api/admin/config
+adminRouter.get('/config', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  try {
+    let config = await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, payload.schoolId)).get();
+    if (!config) {
+      config = {
+        schoolId: payload.schoolId,
+        language: 'en',
+        xpLevelUp: 150,
+        xpBadge: 300,
+        badgesEnabled: true,
+        leaderboardEnabled: true,
+        notifyPayment: true,
+        notifyPortfolio: true,
+        notifyAnnouncement: true,
+        dataRetentionYears: 5,
+        allowParentMessaging: true,
+        allowStudentLeaderboard: true,
+        updatedAt: new Date().toISOString()
+      };
+    }
+    return c.json({ config });
+  } catch (error: any) {
+    console.error('Failed to fetch config:', error);
+    return c.json({ error: 'Failed to fetch config' }, 500);
+  }
+});
+
+// PUT /api/admin/config
+adminRouter.put('/config', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const db = getDb(c.env.DB);
+
+  try {
+    const existing = await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, payload.schoolId)).get();
+
+    if (existing) {
+      await db.update(schoolSettings).set({
+        ...body,
+        updatedAt: new Date().toISOString()
+      }).where(eq(schoolSettings.schoolId, payload.schoolId));
+    } else {
+      await db.insert(schoolSettings).values({
+        schoolId: payload.schoolId,
+        ...body,
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    const updatedConfig = await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, payload.schoolId)).get();
+    return c.json({ message: 'Configuration updated successfully', config: updatedConfig });
+  } catch (error: any) {
+    console.error('Failed to update config:', error);
+    return c.json({ error: 'Failed to update config' }, 500);
+  }
+});
+
+// GET /api/admin/fees/structures
+adminRouter.get('/fees/structures', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  try {
+    const structures = await db.select().from(feeStructures).where(eq(feeStructures.schoolId, payload.schoolId)).all();
+    return c.json({ feeStructures: structures });
+  } catch (error: any) {
+    console.error('Failed to fetch fee structures:', error);
+    return c.json({ error: 'Failed to fetch fee structures' }, 500);
+  }
+});
+
+// POST /api/admin/fees/structures
+adminRouter.post('/fees/structures', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const db = getDb(c.env.DB);
+  try {
+    const id = crypto.randomUUID();
+    await db.insert(feeStructures).values({
+      id,
+      schoolId: payload.schoolId,
+      classId: body.classId,
+      term: body.term,
+      totalAmount: body.totalAmount,
+      breakdown: JSON.stringify(body.breakdown)
+    });
+    const newStructure = await db.select().from(feeStructures).where(eq(feeStructures.id, id)).get();
+    return c.json({ message: 'Fee structure created', feeStructure: newStructure }, 201);
+  } catch (error: any) {
+    console.error('Failed to create fee structure:', error);
+    return c.json({ error: 'Failed to create fee structure' }, 500);
+  }
+});
+
+// PUT /api/admin/fees/structures/:id
+adminRouter.put('/fees/structures/:id', async (c) => {
+  const { id } = c.req.param();
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const db = getDb(c.env.DB);
+  try {
+    const existing = await db.select().from(feeStructures).where(and(eq(feeStructures.id, id), eq(feeStructures.schoolId, payload.schoolId))).get();
+    if (!existing) return c.json({ error: 'Fee structure not found' }, 404);
+
+    await db.update(feeStructures).set({
+      classId: body.classId,
+      term: body.term,
+      totalAmount: body.totalAmount,
+      breakdown: JSON.stringify(body.breakdown)
+    }).where(eq(feeStructures.id, id));
+
+    const updatedStructure = await db.select().from(feeStructures).where(eq(feeStructures.id, id)).get();
+    return c.json({ message: 'Fee structure updated', feeStructure: updatedStructure });
+  } catch (error: any) {
+    console.error('Failed to update fee structure:', error);
+    return c.json({ error: 'Failed to update fee structure' }, 500);
   }
 });
