@@ -18,7 +18,7 @@ async function seed() {
       })
     });
     const adminData = await adminRes.json();
-    if (!adminRes.ok && !adminData.error.includes('already exists')) {
+    if (!adminRes.ok && !adminData.error?.includes('already exists')) {
       throw new Error(`Admin creation failed: ${adminData.error}`);
     }
 
@@ -41,43 +41,88 @@ async function seed() {
 
     await delay(2500);
 
-    // 2. Create Teacher
-    console.log('Creating teacher...');
-    const teacherRes = await fetch(`${API_URL}/admin/teachers`, {
-      method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify({
-        name: 'Mrs. Janet Bloom',
-        email: 'teacher@somobloom.com',
-        password: 'demo',
-        department: 'Science'
-      })
-    });
-    let teacherId = null;
-    if (teacherRes.ok) {
-      const data = await teacherRes.json();
-      teacherId = data.teacher.id;
-      console.log('✅ Teacher created');
-    } else {
-      console.log('Teacher might already exist');
-    }
-
-    await delay(2500);
-
-    // 3. Create Students
-    console.log('Creating students...');
-    const studentsData = [
-      { name: 'Sarah Smith', email: 'student1@somobloom.com', password: 'demo', studentIdNumber: 'STU-001' },
-      { name: 'John Doe', email: 'student2@somobloom.com', password: 'demo', studentIdNumber: 'STU-002' },
-      { name: 'Emily Chen', email: 'student3@somobloom.com', password: 'demo', studentIdNumber: 'STU-003' }
+    // 2. Create Teachers
+    console.log('Creating teachers...');
+    const teachersData = [
+      { name: 'Mrs. Janet Bloom', email: 'teacher1@somobloom.com', password: 'demo', department: 'Science' },
+      { name: 'Mr. Robert Frost', email: 'teacher2@somobloom.com', password: 'demo', department: 'Mathematics' }
     ];
-    const studentIds = [];
-    
-    for (const student of studentsData) {
-      const res = await fetch(`${API_URL}/admin/students`, {
+    const teacherIds = [];
+    for (const teacher of teachersData) {
+      const teacherRes = await fetch(`${API_URL}/admin/teachers`, {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify(student)
+        body: JSON.stringify(teacher)
+      });
+      if (teacherRes.ok) {
+        const data = await teacherRes.json();
+        teacherIds.push(data.teacher.id);
+        console.log(`✅ Teacher created: ${teacher.name}`);
+      } else {
+        const text = await teacherRes.text();
+        console.log(`❌ Failed to create teacher ${teacher.name}: ${text}`);
+      }
+      await delay(2500);
+    }
+
+    // 3. Create Classes using admin token
+    console.log('Creating classes...');
+    const classesData = [
+      { name: 'Grade 4 Science', teacherProfileId: teacherIds[0] },
+      { name: 'Grade 4 Mathematics', teacherProfileId: teacherIds[1] }
+    ];
+    
+    const classIds = [];
+    for (const cls of classesData) {
+      const classRes = await fetch(`${API_URL}/admin/classes`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify(cls)
+      });
+      
+      if (classRes.ok) {
+        const classData = await classRes.json();
+        classIds.push(classData.class.id);
+      }
+    }
+
+    if (classIds.length !== 2) {
+      throw new Error("Failed to create classes");
+    }
+
+    // 4. Create Students using Teacher tokens
+    console.log('Creating students via Teacher API...');
+    
+    // Login as Teacher 1
+    const t1Login = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'teacher1@somobloom.com', password: 'demo' })
+    });
+    const { token: t1Token } = await t1Login.json();
+    const t1Headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${t1Token}` };
+
+    // Login as Teacher 2
+    const t2Login = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'teacher2@somobloom.com', password: 'demo' })
+    });
+    const { token: t2Token } = await t2Login.json();
+    const t2Headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${t2Token}` };
+
+    const studentsData = [
+      { name: 'Sarah Smith', email: 'student1@somobloom.com', password: 'demo', studentIdNumber: 'STU-001', tHeader: t1Headers, classId: classIds[0] },
+      { name: 'John Doe', email: 'student2@somobloom.com', password: 'demo', studentIdNumber: 'STU-002', tHeader: t1Headers, classId: classIds[0] },
+      { name: 'Emily Chen', email: 'student3@somobloom.com', password: 'demo', studentIdNumber: 'STU-003', tHeader: t2Headers, classId: classIds[1] },
+      { name: 'Michael Johnson', email: 'student4@somobloom.com', password: 'demo', studentIdNumber: 'STU-004', tHeader: t2Headers, classId: classIds[1] }
+    ];
+    
+    const studentIds = [];
+    for (const student of studentsData) {
+      const { tHeader, classId, ...studentBody } = student;
+      const res = await fetch(`${API_URL}/teacher/classes/${classId}/students`, {
+        method: 'POST',
+        headers: tHeader,
+        body: JSON.stringify(studentBody)
       });
       if (res.ok) {
         const data = await res.json();
@@ -90,12 +135,13 @@ async function seed() {
       await delay(2500);
     }
 
-    // 4. Create Parents
+    // 5. Create Parents using admin token
     console.log('Creating parents...');
     const parentsData = [
       { name: 'David Smith', email: 'parent1@somobloom.com', password: 'demo', phoneNumber: '+254712345671' },
       { name: 'Jane Doe', email: 'parent2@somobloom.com', password: 'demo', phoneNumber: '+254712345672' },
-      { name: 'Michael Chen', email: 'parent3@somobloom.com', password: 'demo', phoneNumber: '+254712345673' }
+      { name: 'Mary Chen', email: 'parent3@somobloom.com', password: 'demo', phoneNumber: '+254712345673' },
+      { name: 'William Johnson', email: 'parent4@somobloom.com', password: 'demo', phoneNumber: '+254712345674' }
     ];
     const parentIds = [];
 
@@ -116,37 +162,11 @@ async function seed() {
       await delay(2500);
     }
 
-    // 5. Link entities and enroll in classes
-    if (teacherId && studentIds.length === 3 && parentIds.length === 3) {
-      // Create Class
-      console.log('Creating class...');
-      const classRes = await fetch(`${API_URL}/admin/classes`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          name: 'Grade 4 Science',
-          teacherProfileId: teacherId
-        })
-      });
-      
-      if (classRes.ok) {
-        const classData = await classRes.json();
-        const classId = classData.class.id;
-        
-        // Enroll Students
-        console.log('Enrolling students in class...');
-        for (const studentId of studentIds) {
-          await fetch(`${API_URL}/admin/classes/${classId}/enrollments`, {
-            method: 'POST',
-            headers: authHeaders,
-            body: JSON.stringify({ studentProfileId: studentId })
-          });
-        }
-      }
-
+    // 6. Link entities
+    if (teacherIds.length === 2 && studentIds.length === 4 && parentIds.length === 4) {
       // Link Parents to Students
       console.log('Linking parents to students...');
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 4; i++) {
         await fetch(`${API_URL}/admin/parents/${parentIds[i]}/students/${studentIds[i]}`, {
           method: 'POST',
           headers: authHeaders
@@ -155,7 +175,7 @@ async function seed() {
       
       console.log('✅ Database seeded successfully!');
     } else {
-      console.log('⚠️ Some entities already existed or failed creation, skipped linking.');
+      console.log('⚠️ Some entities failed creation, skipped linking.');
     }
 
   } catch (err) {
