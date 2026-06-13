@@ -324,3 +324,45 @@ parentRouter.post('/payments', async (c) => {
     return c.json({ error: 'Failed to submit payment' }, 500);
   }
 });
+
+// POST /api/parent/ask-assistant
+parentRouter.post('/ask-assistant', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { prompt, childData } = body;
+
+  if (!prompt) {
+    return c.json({ error: 'Prompt is required' }, 400);
+  }
+
+  if (!c.env.AI) {
+    return c.json({ response: "AI assistant is currently unavailable." });
+  }
+
+  try {
+    const childName = childData?.name || 'your child';
+    const balance = childData?.fees?.totalBalance || 0;
+    const progress = childData?.progress ? JSON.stringify(childData.progress) : 'No progress data available';
+
+    const systemPrompt = `You are a highly formal, polite, and professional parent AI assistant for SomoBloom Academy.
+You help parents interpret their child's progress, grades, and fee balances.
+Here is the context for the current child (${childName}):
+Fee Balance: KES ${balance}
+Current Academic Progress: ${progress}
+
+Base your answers on this data. Be concise, polite, and formal.`;
+
+    const aiResponse = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: prompt }
+      ]
+    });
+
+    const responseText = aiResponse.response || aiResponse.text || "I'm having trouble connecting to my brain right now.";
+    return c.json({ response: responseText });
+  } catch (err: any) {
+    console.error('Failed to run Parent AI:', err);
+    return c.json({ error: 'AI Generation failed' }, 500);
+  }
+});

@@ -130,8 +130,27 @@ studentRouter.post('/ask-tutor', async (c) => {
   }
 
   try {
-    const response = await generateText(c.env.AI, `You are a helpful and encouraging tutor for a student. Answer the following question:\n\n${prompt}`);
-    return c.json({ response });
+    const payload = c.get('jwtPayload');
+    const db = getDb(c.env.DB);
+    const profile = await db.select().from(studentProfiles).where(eq(studentProfiles.userId, payload.sub)).get();
+    const studentName = profile?.name || 'Student';
+
+    const systemPrompt = `You are an encouraging, deeply supportive, and highly effective Socratic AI Tutor for the Kenyan Competency Based Curriculum (CBC).
+You are tutoring a student named ${studentName}.
+CRITICAL RULES:
+1. NEVER give the direct answer to a question.
+2. ALWAYS guide the student to discover the answer themselves through Socratic questioning.
+3. Be deeply encouraging and supportive, celebrating their effort.
+4. Keep your responses short, simple, and easy to read. Use formatting where helpful.`;
+
+    const aiResponse = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: prompt }
+      ]
+    });
+
+    return c.json({ response: aiResponse.response || "I'm thinking... please try again." });
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }

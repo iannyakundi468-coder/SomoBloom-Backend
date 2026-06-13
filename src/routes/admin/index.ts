@@ -778,3 +778,44 @@ adminRouter.get('/payments', async (c) => {
     return c.json({ error: 'Failed to fetch admin payments' }, 500);
   }
 });
+
+// POST /api/admin/ask-assistant
+adminRouter.post('/ask-assistant', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { prompt, metrics } = body;
+
+  if (!prompt) {
+    return c.json({ error: 'Prompt is required' }, 400);
+  }
+
+  if (!c.env.AI) {
+    return c.json({ response: "AI assistant is currently unavailable." });
+  }
+
+  try {
+    const systemPrompt = `You are a highly formal and professional financial and administrative AI assistant for a school principal at SomoBloom Academy.
+You help interpret financial data and student metrics. Here is the current data context:
+Students: ${metrics?.totalStudents || 'Unknown'}
+Teachers: ${metrics?.totalTeachers || 'Unknown'}
+Active Classes: ${metrics?.activeClasses || 'Unknown'}
+Total Collected Fees: KES ${metrics?.totalCollected || 0}
+Pending Fees: KES ${metrics?.pendingFees || 0}
+Failed Payments: ${metrics?.failedPayments || 0}
+
+Base your answers on this data. Be concise, professional, and formal.`;
+
+    const aiResponse = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: prompt }
+      ]
+    });
+
+    const responseText = aiResponse.response || aiResponse.text || "I'm having trouble connecting to my brain right now.";
+    return c.json({ response: responseText });
+  } catch (err: any) {
+    console.error('Failed to run Admin AI:', err);
+    return c.json({ error: 'AI Generation failed' }, 500);
+  }
+});

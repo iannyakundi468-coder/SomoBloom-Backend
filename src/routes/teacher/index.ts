@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence, messages } from '../../db/schema';
+import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence, messages, teacherRemarks } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { eq, and, inArray } from 'drizzle-orm';
@@ -440,6 +440,87 @@ teacherRouter.post('/ai/generate-plan', async (c) => {
   } catch (err: any) {
     console.error('Failed to run Cloudflare Workers AI:', err);
     return c.json({ error: 'AI Generation failed. Please try again.' }, 500);
+  }
+});
+
+// Generate AI Report Card Feedback and save to database
+teacherRouter.post('/ai/generate-feedback', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { studentProfileId, studentName, attendancePercent, strands, competencies } = body;
+
+  if (!studentProfileId || !studentName) {
+    return c.json({ error: 'Student Profile ID and Name are required' }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  
+  try {
+    const teacherProfile = await db.select().from(teacherProfiles).where(eq(teacherProfiles.userId, payload.sub)).get();
+    if (!teacherProfile) return c.json({ error: 'Teacher profile not found' }, 404);
+
+    const systemPrompt = `You are a professional, highly observant, and pedagogical teacher writing a report card remark for a student based on the Kenyan CBC curriculum.
+You must generate a concise, professional paragraph (3-4 sentences) summarizing the student's performance, highlighting strengths, and providing a gentle area for improvement.
+Base your remark on the following data for student ${studentName}:
+Attendance Rate: ${attendancePercent || 'Unknown'}%
+CBC Strands: ${JSON.stringify(strands || {})}
+Core Competencies: ${JSON.stringify(competencies || {})}
+
+Do not include greetings or sign-offs, just the pure remark text.`;
+
+    const aiResponse = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Please generate the report card remark for ${studentName}.` }
+      ]
+    });
+
+    const remark = (aiResponse.response || aiResponse.text || `${studentName} is making satisfactory progress in all areas.`).replace(/^"|"$/g, '').trim();
+
+    const remarkId = crypto.randomUUID();
+    await db.insert(teacherRemarks).values({
+      id: remarkId,
+      studentProfileId,
+      teacherProfileId: teacherProfile.id,
+      remark,
+      term: 'Term 1, 2026' // You could make this dynamic
+    });
+
+    return c.json({ success: true, remark });
+  } catch (err: any) {
+    console.error('Failed to generate and save AI feedback:', err);
+    return c.json({ error: 'Failed to generate feedback' }, 500);
+  }
+});
+
+// AI Timetable Analyst
+teacherRouter.post('/ai/analyze-timetable', async (c) => {
+  const body = await c.req.json();
+  const { classes } = body;
+  
+  if (!c.env.AI) {
+    return c.json({ response: "AI Timetable Analyst is currently unavailable." });
+  }
+
+  try {
+    const classNames = Array.isArray(classes) ? classes.map((cls: any) => cls.name).join(', ') : 'unknown classes';
+    const systemPrompt = `You are an expert pedagogical AI Timetable Analyst for a school using the Kenyan CBC curriculum.
+You analyze teacher schedules and provide 1 single, concise sentence of actionable advice regarding scheduling, fatigue management, or engagement based on modern pedagogy.
+The teacher teaches the following classes: ${classNames}.
+Give only the suggestion text, no greeting.`;
+
+    const aiResponse = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: "Please analyze my timetable and give me a suggestion." }
+      ]
+    });
+
+    const responseText = aiResponse.response || aiResponse.text || "AI Suggestion: Consider shifting intensive subjects to morning slots for better engagement.";
+    return c.json({ response: responseText });
+  } catch (err: any) {
+    console.error('Failed to run AI Timetable Analyst:', err);
+    return c.json({ error: 'AI Generation failed' }, 500);
   }
 });
 

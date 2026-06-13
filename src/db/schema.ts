@@ -232,3 +232,13 @@ export const feeStructures = sqliteTable('fee_structures', {
   breakdown: text('breakdown').notNull(), // JSON string representing breakdown items
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+// --- TEACHER REMARKS (AI GENERATED OR MANUAL) ---
+export const teacherRemarks = sqliteTable('teacher_remarks', {
+  id: text('id').primaryKey(),
+  studentProfileId: text('student_profile_id').references(() => studentProfiles.id).notNull(),
+  teacherProfileId: text('teacher_profile_id').references(() => teacherProfiles.id).notNull(),
+  remark: text('remark').notNull(),
+  term: text('term'),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
