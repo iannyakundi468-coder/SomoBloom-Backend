@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions, activityLogs, auditLogs, schoolSettings, feeStructures, payments } from '../../db/schema';
+import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions, activityLogs, auditLogs, schoolSettings, feeStructures, payments, timetables } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { eq, and, desc } from 'drizzle-orm';
@@ -776,6 +776,89 @@ adminRouter.get('/payments', async (c) => {
   } catch (error: any) {
     console.error('Failed to fetch admin payments:', error);
     return c.json({ error: 'Failed to fetch admin payments' }, 500);
+  }
+});
+
+// --- TIMETABLES ---
+adminRouter.get('/timetable', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  
+  try {
+    const records = await db.select().from(timetables)
+      .where(eq(timetables.schoolId, payload.schoolId))
+      .orderBy(desc(timetables.createdAt))
+      .limit(1);
+
+    if (records.length === 0) {
+      return c.json({ success: true, timetable: null });
+    }
+
+    return c.json({ success: true, timetable: records[0] });
+  } catch (error) {
+    console.error('Failed to fetch timetable:', error);
+    return c.json({ error: 'Failed to fetch timetable' }, 500);
+  }
+});
+
+adminRouter.post('/timetable/generate', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  const body = await c.req.json();
+  const { classes, teachers, subjects } = body;
+
+  if (!c.env.AI) {
+    return c.json({ error: "Cloudflare Workers AI is not configured" }, 500);
+  }
+
+  try {
+    const systemPrompt = `You are an expert school scheduler AI. Generate a weekly JSON timetable.
+Input Data:
+Classes: ${JSON.stringify(classes)}
+Teachers: ${JSON.stringify(teachers)}
+Subjects: ${JSON.stringify(subjects)}
+
+Output strictly valid JSON with this exact structure (no markdown, no extra text):
+{
+  "schedule": [
+    {
+      "day": "Monday",
+      "slots": [
+        { "time": "08:00 - 09:00", "class": "Grade 4", "subject": "Math", "teacher": "Mr. Smith" }
+      ]
+    }
+  ]
+}
+Ensure no teacher is assigned to two classes at the same time. Try to distribute subjects evenly.`;
+
+    const aiResponse = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: "Generate the timetable." }
+      ]
+    });
+
+    let generatedJsonText = aiResponse.response || aiResponse.text;
+    
+    // Clean up potential markdown formatting from AI response
+    generatedJsonText = generatedJsonText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    // Validate JSON
+    JSON.parse(generatedJsonText);
+
+    const id = crypto.randomUUID();
+    await db.insert(timetables).values({
+      id,
+      schoolId: payload.schoolId,
+      term: 'Term 1', // Example, can be dynamic
+      data: generatedJsonText,
+      createdAt: new Date().toISOString()
+    });
+
+    return c.json({ success: true, message: 'Timetable generated successfully' });
+  } catch (error) {
+    console.error('Failed to generate timetable:', error);
+    return c.json({ error: 'Failed to generate timetable or invalid JSON produced by AI' }, 500);
   }
 });
 

@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence, messages, teacherRemarks } from '../../db/schema';
+import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence, messages, teacherRemarks, timetables } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, desc } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 
 export const teacherRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
@@ -673,5 +673,61 @@ teacherRouter.post('/messages', async (c) => {
   } catch (error: any) {
     console.error('Failed to send message:', error);
     return c.json({ error: 'Failed to send message' }, 500);
+  }
+});
+
+// Fetch filtered timetable for teacher
+teacherRouter.get('/timetable', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  
+  try {
+    // Get the teacher's profile first to get their name
+    const [teacher] = await db.select().from(teacherProfiles)
+      .where(eq(teacherProfiles.id, payload.profileId))
+      .limit(1);
+
+    if (!teacher) {
+      return c.json({ error: 'Teacher profile not found' }, 404);
+    }
+    
+    // Decrypt teacher name to match against the timetable JSON
+    const teacherName = await decryptData(teacher.nameEncrypted, c.env);
+
+    // Fetch the latest master timetable
+    const records = await db.select().from(timetables)
+      .where(eq(timetables.schoolId, payload.schoolId))
+      .orderBy(desc(timetables.createdAt))
+      .limit(1);
+
+    if (records.length === 0 || !records[0].data) {
+      return c.json({ success: true, timetable: null });
+    }
+
+    const masterTimetable = JSON.parse(records[0].data);
+    
+    // Filter the timetable to only include slots assigned to this teacher
+    const myTimetable = { schedule: [] };
+    
+    if (masterTimetable.schedule && Array.isArray(masterTimetable.schedule)) {
+      myTimetable.schedule = masterTimetable.schedule.map((dayObj: any) => {
+        if (!dayObj.slots) return { day: dayObj.day, slots: [] };
+        
+        // Filter slots where the teacher name loosely matches
+        const mySlots = dayObj.slots.filter((slot: any) => {
+          return slot.teacher && slot.teacher.toLowerCase().includes(teacherName.toLowerCase());
+        });
+        
+        return {
+          day: dayObj.day,
+          slots: mySlots
+        };
+      }).filter((dayObj: any) => dayObj.slots.length > 0); // Optionally only return days with classes
+    }
+
+    return c.json({ success: true, timetable: myTimetable });
+  } catch (error) {
+    console.error('Failed to fetch teacher timetable:', error);
+    return c.json({ error: 'Failed to fetch timetable' }, 500);
   }
 });

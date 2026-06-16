@@ -233,6 +233,15 @@ export const feeStructures = sqliteTable('fee_structures', {
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+// --- TIMETABLES ---
+export const timetables = sqliteTable('timetables', {
+  id: text('id').primaryKey(),
+  schoolId: text('school_id').references(() => schools.id).notNull(),
+  term: text('term').notNull(),
+  data: text('data').notNull(), // JSON string representing the master timetable
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 // --- TEACHER REMARKS (AI GENERATED OR MANUAL) ---
 export const teacherRemarks = sqliteTable('teacher_remarks', {
   id: text('id').primaryKey(),
