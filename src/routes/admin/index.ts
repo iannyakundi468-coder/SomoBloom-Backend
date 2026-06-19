@@ -862,6 +862,35 @@ Ensure no teacher is assigned to two classes at the same time. Try to distribute
   }
 });
 
+// POST /api/admin/announcements
+adminRouter.post('/announcements', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { title, content, targetAudience } = body;
+
+  if (!title || !content || !targetAudience) {
+    return c.json({ error: 'Title, content, and targetAudience are required' }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  const announcementId = crypto.randomUUID();
+
+  try {
+    await db.insert(announcements).values({
+      id: announcementId,
+      schoolId: payload.schoolId,
+      authorProfileId: payload.profileId || payload.sub,
+      title,
+      content,
+      targetAudience
+    });
+    return c.json({ message: 'Announcement created successfully', announcementId }, 201);
+  } catch (error: any) {
+    console.error('Failed to create announcement:', error);
+    return c.json({ error: 'Failed to create announcement' }, 500);
+  }
+});
+
 // POST /api/admin/ask-assistant
 adminRouter.post('/ask-assistant', async (c) => {
   const payload = c.get('jwtPayload');

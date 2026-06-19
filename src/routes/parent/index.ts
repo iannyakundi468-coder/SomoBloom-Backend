@@ -229,13 +229,8 @@ parentRouter.get('/students/:studentId/fees', async (c) => {
       .where(eq(enrollments.studentProfileId, studentId))
       .get();
     
-    let totalBalance = 40000;
-    let breakdown = [
-      { name: 'Tuition Fee', cost: 25000 },
-      { name: 'Meals & Food Program', cost: 6000 },
-      { name: 'Creative Activities & Sports', cost: 3500 },
-      { name: 'School Transport Bus', cost: 5500 }
-    ];
+    let totalBalance = 0;
+    let breakdown: any[] = [];
 
     if (enrollment) {
       const feeStruct = await db.select().from(feeStructures)

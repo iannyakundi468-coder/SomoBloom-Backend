@@ -580,6 +580,37 @@ teacherRouter.get('/portfolio', async (c) => {
   }
 });
 
+// Create student portfolio evidence via JSON (for seeding and API clients)
+teacherRouter.post('/portfolio', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { title, type, description, imageUrl, tags, classId, studentProfileId } = body;
+
+  if (!title || !type || !imageUrl || !classId || !studentProfileId) {
+    return c.json({ error: 'Title, type, imageUrl, classId, and studentProfileId are required' }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  const evidenceId = crypto.randomUUID();
+
+  try {
+    await db.insert(portfolioEvidence).values({
+      id: evidenceId,
+      classId,
+      studentProfileId,
+      title,
+      type,
+      description,
+      imageUrl,
+      tags
+    });
+    return c.json({ message: 'Portfolio evidence created successfully', id: evidenceId }, 201);
+  } catch (error: any) {
+    console.error('Failed to create portfolio evidence:', error);
+    return c.json({ error: 'Failed to create portfolio evidence' }, 500);
+  }
+});
+
 // Upload student portfolio evidence (Cloudflare R2 + D1 Database)
 teacherRouter.post('/portfolio/upload', async (c) => {
   if (!c.env.BUCKET) {
