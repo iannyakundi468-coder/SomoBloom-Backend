@@ -26,5 +26,3 @@ CREATE TABLE `school_settings` (
 	`updated_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	FOREIGN KEY (`school_id`) REFERENCES `schools`(`id`) ON UPDATE no action ON DELETE no action
 );
---> statement-breakpoint
-ALTER TABLE `student_enrollment_submissions` ADD `school_id` text NOT NULL REFERENCES schools(id);

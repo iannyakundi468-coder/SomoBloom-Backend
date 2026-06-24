@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2024-11-27"
 account_id = "b9a79aebae11306fcf65d0e01cce47be"
 
-# Set up Cloudflare D1 Database binding
+# Set up Cloudflare D1 Database binding for Production
 [[d1_databases]]
 binding = "DB" # Available as env.DB in the code
 database_name = "somobloom_db"
@@ -24,5 +24,30 @@ preview_id = "da3c2265e4824b20b7b94a7b79153f6b"
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
 dataset = "somobloom_analytics"
+
+# =====================================================================
+# Staging Environment Configuration
+# Deployed using: wrangler deploy --env staging
+# =====================================================================
+[env.staging]
+name = "somobloom-backend-staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "somobloom_db_staging"
+database_id = "739ead2b-f1b8-4245-b944-971afef9fe01"
+migrations_dir = "drizzle"
+
+[env.staging.ai]
+binding = "AI"
+
+[[env.staging.kv_namespaces]]
+binding = "MEDIA_KV"
+id = "da3c2265e4824b20b7b94a7b79153f6b" # Uses the preview KV for staging
+
+[[env.staging.analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "somobloom_analytics_staging"
+
 
 
