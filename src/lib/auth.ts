@@ -77,4 +77,6 @@ export type JwtPayload = {
   schoolId: string;
   role: 'admin' | 'teacher' | 'student' | 'parent';
   exp: number; // Expiration timestamp
+  profileId?: string;
 };
+

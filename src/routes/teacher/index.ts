@@ -714,16 +714,15 @@ teacherRouter.get('/timetable', async (c) => {
   
   try {
     // Get the teacher's profile first to get their name
-    const [teacher] = await db.select().from(teacherProfiles)
-      .where(eq(teacherProfiles.id, payload.profileId))
-      .limit(1);
+    const teacher = await db.select().from(teacherProfiles)
+      .where(eq(teacherProfiles.userId, payload.sub))
+      .get();
 
     if (!teacher) {
       return c.json({ error: 'Teacher profile not found' }, 404);
     }
     
-    // Decrypt teacher name to match against the timetable JSON
-    const teacherName = await decryptData(teacher.nameEncrypted, c.env);
+    const teacherName = teacher.name;
 
     // Fetch the latest master timetable
     const records = await db.select().from(timetables)
