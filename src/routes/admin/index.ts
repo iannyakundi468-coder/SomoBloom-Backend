@@ -79,7 +79,7 @@ adminRouter.use('/*', async (c, next) => {
     const activeResponsibilityTypes = delegations.map(d => d.responsibility);
     
     // Map paths to responsibilities
-    let requiredResponsibility: string | null = null;
+    let requiredResponsibility: 'announcements' | 'admissions' | 'finances' | 'timetable' | null = null;
     if (path.includes('/enrollments')) {
       requiredResponsibility = 'admissions';
     } else if (path.includes('/fees') || path.includes('/payments')) {
