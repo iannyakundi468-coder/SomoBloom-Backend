@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions, activityLogs, auditLogs, schoolSettings, feeStructures, payments, timetables, announcements } from '../../db/schema';
+import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions, activityLogs, auditLogs, schoolSettings, feeStructures, payments, timetables, announcements, delegatedResponsibilities } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { eq, and, desc } from 'drizzle-orm';
@@ -34,13 +34,71 @@ adminRouter.use('/*', (c, next) => {
   return jwtMiddleware(c, next);
 });
 
-// Middleware to ensure the user is an admin
+// Middleware to ensure the user is an admin or a teacher with delegated access
 adminRouter.use('/*', async (c, next) => {
-  const payload = c.get('jwtPayload');
-  if (payload.role !== 'admin') {
-    return c.json({ error: 'Unauthorized: Admin access required' }, 403);
+  // Ensure the delegated_responsibilities table exists in D1 SQLite
+  try {
+    await c.env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS delegated_responsibilities (
+        id TEXT PRIMARY KEY NOT NULL,
+        school_id TEXT NOT NULL,
+        teacher_profile_id TEXT NOT NULL,
+        responsibility TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE NO ACTION ON DELETE NO ACTION,
+        FOREIGN KEY (teacher_profile_id) REFERENCES teacher_profiles(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+      )
+    `).run();
+  } catch (err) {
+    console.error('Failed to auto-migrate delegated_responsibilities:', err);
   }
-  await next();
+
+  const payload = c.get('jwtPayload');
+  
+  if (payload.role === 'admin') {
+    return await next();
+  }
+  
+  if (payload.role === 'teacher') {
+    const path = c.req.path;
+    const db = getDb(c.env.DB);
+    
+    // Find teacher profile first
+    const teacher = await db.select().from(teacherProfiles).where(eq(teacherProfiles.userId, payload.sub)).get();
+    if (!teacher) {
+      return c.json({ error: 'Unauthorized: Teacher profile not found' }, 403);
+    }
+    
+    // Check delegated responsibilities
+    const delegations = await db.select().from(delegatedResponsibilities)
+      .where(and(
+        eq(delegatedResponsibilities.teacherProfileId, teacher.id),
+        eq(delegatedResponsibilities.schoolId, payload.schoolId)
+      )).all();
+      
+    const activeResponsibilityTypes = delegations.map(d => d.responsibility);
+    
+    // Map paths to responsibilities
+    let requiredResponsibility: string | null = null;
+    if (path.includes('/enrollments')) {
+      requiredResponsibility = 'admissions';
+    } else if (path.includes('/fees') || path.includes('/payments')) {
+      requiredResponsibility = 'finances';
+    } else if (path.includes('/timetable')) {
+      requiredResponsibility = 'timetable';
+    } else if (path.includes('/announcements')) {
+      requiredResponsibility = 'announcements';
+    }
+    
+    if (requiredResponsibility && activeResponsibilityTypes.includes(requiredResponsibility)) {
+      // Temporarily mock profileId for compatibility with any downstream code expecting it
+      payload.profileId = teacher.id;
+      c.set('jwtPayload', payload);
+      return await next();
+    }
+  }
+  
+  return c.json({ error: 'Unauthorized: Admin access required' }, 403);
 });
 
 adminRouter.get('/ping', (c) => c.json({ message: 'Admin API operational' }));
@@ -234,6 +292,41 @@ adminRouter.get('/enrollments', async (c) => {
     return c.json({ error: 'Failed to fetch enrollment submissions' }, 500);
   }
 });
+
+adminRouter.put('/enrollments/:id', async (c) => {
+  const { id } = c.req.param();
+  const body = await c.req.json();
+  const { status } = body;
+  const payload = c.get('jwtPayload');
+
+  if (!status || !['approved', 'rejected', 'pending'].includes(status)) {
+    return c.json({ error: 'Invalid or missing status' }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  try {
+    const submissionId = parseInt(id, 10);
+    const existing = await db.select().from(studentEnrollmentSubmissions)
+      .where(and(
+        eq(studentEnrollmentSubmissions.id, submissionId),
+        eq(studentEnrollmentSubmissions.schoolId, payload.schoolId)
+      )).get();
+
+    if (!existing) {
+      return c.json({ error: 'Enrollment submission not found' }, 404);
+    }
+
+    await db.update(studentEnrollmentSubmissions)
+      .set({ status })
+      .where(eq(studentEnrollmentSubmissions.id, submissionId));
+
+    return c.json({ message: `Enrollment submission updated to ${status} successfully` });
+  } catch (error: any) {
+    console.error('Failed to update enrollment:', error);
+    return c.json({ error: 'Failed to update enrollment submission' }, 500);
+  }
+});
+
 
 // GET /api/admin/users
 adminRouter.get('/users', async (c) => {
@@ -862,6 +955,22 @@ Ensure no teacher is assigned to two classes at the same time. Try to distribute
   }
 });
 
+// GET /api/admin/announcements
+adminRouter.get('/announcements', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  try {
+    const list = await db.select().from(announcements)
+      .where(eq(announcements.schoolId, payload.schoolId))
+      .orderBy(desc(announcements.createdAt))
+      .all();
+    return c.json({ announcements: list });
+  } catch (error: any) {
+    console.error('Failed to fetch announcements:', error);
+    return c.json({ error: 'Failed to fetch announcements' }, 500);
+  }
+});
+
 // POST /api/admin/announcements
 adminRouter.post('/announcements', async (c) => {
   const payload = c.get('jwtPayload');
@@ -931,3 +1040,65 @@ Base your answers on this data. Be concise, professional, and formal.`;
     return c.json({ error: 'AI Generation failed' }, 500);
   }
 });
+
+// GET /admin/delegations
+adminRouter.get('/delegations', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  try {
+    const delegations = await db.select().from(delegatedResponsibilities)
+      .where(eq(delegatedResponsibilities.schoolId, payload.schoolId))
+      .all();
+    return c.json({ delegations });
+  } catch (error: any) {
+    console.error('Failed to fetch delegations:', error);
+    return c.json({ error: 'Failed to fetch delegations' }, 500);
+  }
+});
+
+// POST /admin/delegations/toggle
+adminRouter.post('/delegations/toggle', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { teacherProfileId, responsibility } = body;
+
+  if (!teacherProfileId || !responsibility) {
+    return c.json({ error: 'teacherProfileId and responsibility are required' }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  try {
+    // Check if the delegation already exists
+    const existing = await db.select().from(delegatedResponsibilities)
+      .where(and(
+        eq(delegatedResponsibilities.schoolId, payload.schoolId),
+        eq(delegatedResponsibilities.teacherProfileId, teacherProfileId),
+        eq(delegatedResponsibilities.responsibility, responsibility)
+      )).get();
+
+    if (existing) {
+      // Revoke delegation
+      await db.delete(delegatedResponsibilities)
+        .where(eq(delegatedResponsibilities.id, existing.id));
+    } else {
+      // Add delegation
+      await db.insert(delegatedResponsibilities).values({
+        id: crypto.randomUUID(),
+        schoolId: payload.schoolId,
+        teacherProfileId,
+        responsibility
+      });
+    }
+
+    // Return updated list of delegations
+    const delegations = await db.select().from(delegatedResponsibilities)
+      .where(eq(delegatedResponsibilities.schoolId, payload.schoolId))
+      .all();
+
+    return c.json({ delegations });
+  } catch (error: any) {
+    console.error('Failed to toggle delegation:', error);
+    return c.json({ error: 'Failed to toggle delegation' }, 500);
+  }
+});
+

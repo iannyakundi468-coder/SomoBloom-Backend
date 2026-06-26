@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence, messages, teacherRemarks, timetables } from '../../db/schema';
+import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence, messages, teacherRemarks, timetables, delegatedResponsibilities } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { eq, and, inArray, desc } from 'drizzle-orm';
@@ -54,8 +54,39 @@ teacherRouter.get('/me', async (c) => {
   if (!profile) {
     return c.json({ error: 'Profile not found' }, 404);
   }
-  return c.json({ profile });
+
+  // Ensure table exists
+  try {
+    await c.env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS delegated_responsibilities (
+        id TEXT PRIMARY KEY NOT NULL,
+        school_id TEXT NOT NULL,
+        teacher_profile_id TEXT NOT NULL,
+        responsibility TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE NO ACTION ON DELETE NO ACTION,
+        FOREIGN KEY (teacher_profile_id) REFERENCES teacher_profiles(id) ON UPDATE NO ACTION ON DELETE NO ACTION
+      )
+    `).run();
+  } catch (err) {
+    console.error('Failed to auto-migrate delegated_responsibilities in teacher router:', err);
+  }
+
+  // Fetch delegated responsibilities
+  const delegations = await db.select().from(delegatedResponsibilities)
+    .where(and(
+      eq(delegatedResponsibilities.teacherProfileId, profile.id),
+      eq(delegatedResponsibilities.schoolId, payload.schoolId)
+    )).all();
+
+  return c.json({ 
+    profile: {
+      ...profile,
+      delegations: delegations.map(d => d.responsibility)
+    } 
+  });
 });
+
 
 // List classes for the teacher, enriched with student rosters, grades, and attendance metrics
 teacherRouter.get('/classes', async (c) => {

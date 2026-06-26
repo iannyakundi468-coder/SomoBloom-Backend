@@ -251,3 +251,13 @@ export const teacherRemarks = sqliteTable('teacher_remarks', {
   term: text('term'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+// --- DELEGATED RESPONSIBILITIES ---
+export const delegatedResponsibilities = sqliteTable('delegated_responsibilities', {
+  id: text('id').primaryKey(),
+  schoolId: text('school_id').references(() => schools.id).notNull(),
+  teacherProfileId: text('teacher_profile_id').references(() => teacherProfiles.id).notNull(),
+  responsibility: text('responsibility', { enum: ['admissions', 'finances', 'timetable', 'announcements'] }).notNull(),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+

@@ -127,6 +127,67 @@ authRouter.post('/login', async (c) => {
 
   const db = getDb(c.env.DB);
   const encryptionSecret = getEncryptionSecret(c.env);
+
+  // Auto-seed if database is empty
+  try {
+    const existingUsers = await db.select().from(users).all();
+    if (existingUsers.length === 0) {
+      console.log('🌱 Database is empty. Seeding default admin and teacher...');
+      const schoolId = crypto.randomUUID();
+      const adminUserId = crypto.randomUUID();
+      const adminProfileId = crypto.randomUUID();
+      const teacherUserId = crypto.randomUUID();
+      const teacherProfileId = crypto.randomUUID();
+      
+      const adminEmail = 'admin@somobloom.com';
+      const teacherEmail = 'teacher1@somobloom.com';
+      const defaultPassword = 'demo';
+      
+      const adminEmailHash = await hashIdentifier(adminEmail, encryptionSecret);
+      const teacherEmailHash = await hashIdentifier(teacherEmail, encryptionSecret);
+      
+      const encAdminEmail = await encryptData(adminEmail, encryptionSecret);
+      const encTeacherEmail = await encryptData(teacherEmail, encryptionSecret);
+      
+      const hashedPassword = await hashPassword(defaultPassword);
+      
+      await db.batch([
+        db.insert(schools).values({
+          id: schoolId,
+          name: 'SomoBloom Academy',
+        }),
+        db.insert(users).values({
+          id: adminUserId,
+          emailHash: adminEmailHash,
+          encryptedEmail: encAdminEmail,
+          passwordHash: hashedPassword,
+        }),
+        db.insert(adminProfiles).values({
+          id: adminProfileId,
+          userId: adminUserId,
+          schoolId,
+          name: 'Admin User',
+        }),
+        db.insert(users).values({
+          id: teacherUserId,
+          emailHash: teacherEmailHash,
+          encryptedEmail: encTeacherEmail,
+          passwordHash: hashedPassword,
+        }),
+        db.insert(teacherProfiles).values({
+          id: teacherProfileId,
+          userId: teacherUserId,
+          schoolId,
+          name: 'Mrs. Janet Bloom',
+          department: 'Science',
+        })
+      ]);
+      console.log('✅ Auto-seed completed successfully!');
+    }
+  } catch (err) {
+    console.error('Failed to auto-seed:', err);
+  }
+
   const identifierHash = await hashIdentifier(identifier, encryptionSecret);
 
   // 1. Find user
