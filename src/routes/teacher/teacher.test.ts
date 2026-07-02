@@ -28,6 +28,7 @@ describe("Teacher Timetable Integration Test", () => {
 
     // Drop existing tables
     await d1.exec(`
+      DROP TABLE IF EXISTS delegated_responsibilities;
       DROP TABLE IF EXISTS parent_student_relations;
       DROP TABLE IF EXISTS parent_profiles;
       DROP TABLE IF EXISTS student_profiles;

@@ -29,6 +29,7 @@ describe("Database Isolation Tests", () => {
 
     // 1. Drop existing tables if they exist to start with a clean slate
     await d1.exec(`
+      DROP TABLE IF EXISTS delegated_responsibilities;
       DROP TABLE IF EXISTS parent_student_relations;
       DROP TABLE IF EXISTS parent_profiles;
       DROP TABLE IF EXISTS student_profiles;
