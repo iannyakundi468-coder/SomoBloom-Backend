@@ -7,26 +7,55 @@ import { studentRouter } from './routes/student';
 import { parentRouter } from './routes/parent';
 import { messagesRouter } from './routes/messages';
 import { mediaRouter } from './routes/media';
+import { getAllowedOrigins } from './lib/config';
 
 export type Bindings = {
   DB: D1Database;
-  AI: any; // Ai type from '@cloudflare/workers-types' but we can use any for now
+  AI: any;
   MEDIA_KV: KVNamespace;
   BUCKET?: any;
   JWT_SECRET?: string;
   ENCRYPTION_SECRET?: string;
   ENVIRONMENT?: string;
+  ALLOWED_ORIGINS?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// Enable CORS for all routes so the frontends can communicate with this API
-app.use('/api/*', cors({
-  origin: (origin) => origin || '*', // Dynamically allow the requesting origin
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  }));
+// Configure strict CORS policy for all API routes
+app.use('/api/*', (c, next) => {
+  const allowed = getAllowedOrigins(c.env);
+  const corsMiddleware = cors({
+    origin: (origin) => {
+      if (!origin) return allowed[0];
+      if (allowed.includes(origin)) return origin;
+      return null;
+    },
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  });
+  return corsMiddleware(c, next);
+});
+
+// Global Error Handler
+app.onError((err, c) => {
+  console.error('Unhandled Application Error:', err);
+  
+  const isProduction = c.env.ENVIRONMENT === 'production';
+  return c.json({
+    error: 'Internal Server Error',
+    message: isProduction ? 'An unexpected error occurred.' : err.message,
+  }, 500);
+});
+
+// Global Not Found Handler
+app.notFound((c) => {
+  return c.json({
+    error: 'Not Found',
+    message: `Route ${c.req.method} ${c.req.path} does not exist.`
+  }, 404);
+});
 
 app.get('/', (c) => {
   return c.json({
@@ -36,7 +65,6 @@ app.get('/', (c) => {
     documentation: '/api'
   });
 });
-
 
 // Mount modular routers
 app.route('/api/auth', authRouter);

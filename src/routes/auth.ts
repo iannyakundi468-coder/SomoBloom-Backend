@@ -4,39 +4,35 @@ import { getDb } from '../db/client';
 import { users, schools, adminProfiles, teacherProfiles, studentProfiles, parentProfiles } from '../db/schema';
 import { hashPassword, verifyPassword, type JwtPayload } from '../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../lib/encryption';
+import { getJwtSecret, getEncryptionSecret } from '../lib/config';
+import { rateLimiter } from '../lib/rateLimit';
 import { eq, or } from 'drizzle-orm';
-
-type Bindings = {
-  DB: D1Database;
-  JWT_SECRET?: string;
-  ENCRYPTION_SECRET?: string;
-  ENVIRONMENT?: string;
-};
+import type { Bindings } from '../index';
 
 export const authRouter = new Hono<{ Bindings: Bindings }>();
 
-const getSecret = (env: Bindings) => {
-  if (env.JWT_SECRET) return env.JWT_SECRET;
-  if (env.ENVIRONMENT === 'production') {
-    throw new Error('FATAL SECURITY ERROR: JWT_SECRET environment variable is required in production.');
-  }
-  return 'somobloom_super_secret_dev_key_123';
-};
+// Rate limiters for security
+const loginLimiter = rateLimiter({ windowMs: 60000, maxRequests: 5 }); // 5 requests per minute
+const registerLimiter = rateLimiter({ windowMs: 3600000, maxRequests: 3 }); // 3 requests per hour
 
-const getEncryptionSecret = (env: Bindings) => {
-  if (env.ENCRYPTION_SECRET) return env.ENCRYPTION_SECRET;
-  if (env.ENVIRONMENT === 'production') {
-    throw new Error('FATAL SECURITY ERROR: ENCRYPTION_SECRET environment variable is required in production.');
+authRouter.post('/register-school', registerLimiter, async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) {
+    return c.json({ error: 'Invalid JSON request body' }, 400);
   }
-  return 'somobloom_super_secret_encryption_key_123';
-};
 
-authRouter.post('/register-school', async (c) => {
-  const body = await c.req.json();
   const { schoolName, adminName, email, phoneNumber, password } = body;
 
   if (!schoolName || !adminName || !email || !password) {
     return c.json({ error: 'Missing required fields' }, 400);
+  }
+
+  if (typeof email !== 'string' || !email.includes('@')) {
+    return c.json({ error: 'Invalid email address' }, 400);
+  }
+
+  if (typeof password !== 'string' || password.length < 8) {
+    return c.json({ error: 'Password must be at least 8 characters long' }, 400);
   }
 
   const db = getDb(c.env.DB);
@@ -67,7 +63,6 @@ authRouter.post('/register-school', async (c) => {
   const encryptedPhoneNumber = phoneNumber ? await encryptData(phoneNumber, encryptionSecret) : null;
 
   try {
-    // Start a transaction to insert school, user, and admin profile
     await db.batch([
       db.insert(schools).values({
         id: schoolId,
@@ -89,15 +84,14 @@ authRouter.post('/register-school', async (c) => {
       })
     ]);
 
-    // Generate JWT
     const payload: JwtPayload = {
       sub: userId,
       schoolId: schoolId,
       role: 'admin',
-      exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7, // 7 days expiration
+      exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7,
     };
 
-    const token = await sign(payload, getSecret(c.env));
+    const token = await sign(payload, getJwtSecret(c.env), 'HS256');
 
     return c.json({
       message: 'School registered successfully',
@@ -117,8 +111,12 @@ authRouter.post('/register-school', async (c) => {
   }
 });
 
-authRouter.post('/login', async (c) => {
-  const body = await c.req.json();
+authRouter.post('/login', loginLimiter, async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) {
+    return c.json({ error: 'Invalid JSON request body' }, 400);
+  }
+
   const { email: identifier, password } = body;
 
   if (!identifier || !password) {
@@ -127,67 +125,6 @@ authRouter.post('/login', async (c) => {
 
   const db = getDb(c.env.DB);
   const encryptionSecret = getEncryptionSecret(c.env);
-
-  // Auto-seed if database is empty
-  try {
-    const existingUsers = await db.select().from(users).all();
-    if (existingUsers.length === 0) {
-      console.log('🌱 Database is empty. Seeding default admin and teacher...');
-      const schoolId = crypto.randomUUID();
-      const adminUserId = crypto.randomUUID();
-      const adminProfileId = crypto.randomUUID();
-      const teacherUserId = crypto.randomUUID();
-      const teacherProfileId = crypto.randomUUID();
-      
-      const adminEmail = 'admin@somobloom.com';
-      const teacherEmail = 'teacher1@somobloom.com';
-      const defaultPassword = 'demo';
-      
-      const adminEmailHash = await hashIdentifier(adminEmail, encryptionSecret);
-      const teacherEmailHash = await hashIdentifier(teacherEmail, encryptionSecret);
-      
-      const encAdminEmail = await encryptData(adminEmail, encryptionSecret);
-      const encTeacherEmail = await encryptData(teacherEmail, encryptionSecret);
-      
-      const hashedPassword = await hashPassword(defaultPassword);
-      
-      await db.batch([
-        db.insert(schools).values({
-          id: schoolId,
-          name: 'SomoBloom Academy',
-        }),
-        db.insert(users).values({
-          id: adminUserId,
-          emailHash: adminEmailHash,
-          encryptedEmail: encAdminEmail,
-          passwordHash: hashedPassword,
-        }),
-        db.insert(adminProfiles).values({
-          id: adminProfileId,
-          userId: adminUserId,
-          schoolId,
-          name: 'Admin User',
-        }),
-        db.insert(users).values({
-          id: teacherUserId,
-          emailHash: teacherEmailHash,
-          encryptedEmail: encTeacherEmail,
-          passwordHash: hashedPassword,
-        }),
-        db.insert(teacherProfiles).values({
-          id: teacherProfileId,
-          userId: teacherUserId,
-          schoolId,
-          name: 'Mrs. Janet Bloom',
-          department: 'Science',
-        })
-      ]);
-      console.log('✅ Auto-seed completed successfully!');
-    }
-  } catch (err) {
-    console.error('Failed to auto-seed:', err);
-  }
-
   const identifierHash = await hashIdentifier(identifier, encryptionSecret);
 
   // 1. Find user
@@ -197,6 +134,7 @@ authRouter.post('/login', async (c) => {
       eq(users.phoneNumberHash, identifierHash)
     )
   ).get();
+
   if (!user) {
     return c.json({ error: 'Invalid credentials' }, 401);
   }
@@ -244,7 +182,6 @@ authRouter.post('/login', async (c) => {
     return c.json({ error: 'User profile not found.' }, 403);
   }
 
-  // Generate JWT
   const payload: JwtPayload = {
     sub: user.id,
     schoolId: userSchoolId,
@@ -252,8 +189,7 @@ authRouter.post('/login', async (c) => {
     exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7,
   };
 
-  const token = await sign(payload, getSecret(c.env), 'HS256');
-
+  const token = await sign(payload, getJwtSecret(c.env), 'HS256');
   const decryptedEmail = await decryptData(user.encryptedEmail, encryptionSecret);
 
   return c.json({

@@ -3,24 +3,17 @@ import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
 import { studentProfiles, classes, enrollments, assignments, grades, portfolioEvidence, attendance } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
+import { getJwtSecret } from '../../lib/config';
 import { eq, and, inArray } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 import { generateText } from '../../ai';
 
 export const studentRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
 
-const getSecret = (env: Bindings) => {
-  if (env.JWT_SECRET) return env.JWT_SECRET;
-  if (env.ENVIRONMENT === 'production') {
-    throw new Error('FATAL SECURITY ERROR: JWT_SECRET environment variable is required in production.');
-  }
-  return 'somobloom_super_secret_dev_key_123';
-};
-
 // Apply JWT middleware
 studentRouter.use('/*', (c, next) => {
   const jwtMiddleware = jwt({
-    secret: getSecret(c.env),
+    secret: getJwtSecret(c.env),
     alg: 'HS256',
   });
   return jwtMiddleware(c, next);

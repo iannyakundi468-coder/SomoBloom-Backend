@@ -5,8 +5,12 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: {
-        configPath: "./wrangler.toml",
+        configPath: "./wrangler.test.toml",
       },
     }),
   ],
+  test: {
+    maxWorkers: 1,
+    fileParallelism: false,
+  },
 });
