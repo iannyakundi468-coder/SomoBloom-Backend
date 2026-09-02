@@ -11,7 +11,7 @@
     "db:migrate": "wrangler d1 migrations apply somobloom_db --local",
     "db:migrate:remote": "wrangler d1 migrations apply somobloom_db --remote",
     "db:migrate:staging": "wrangler d1 migrations apply somobloom_db_staging --remote --env staging",
-    "db:seed": "node scripts/seed.js",
+    "db:seed": "npx tsx scripts/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 // --- GLOBAL IDENTITIES ---
@@ -30,7 +30,10 @@ export const adminProfiles = sqliteTable('admin_profiles', {
   name: text('name').notNull(),
   avatarUrl: text('avatar_url'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  userIdIdx: index('admin_profiles_user_id_idx').on(table.userId),
+  schoolIdIdx: index('admin_profiles_school_id_idx').on(table.schoolId),
+}));
 
 export const teacherProfiles = sqliteTable('teacher_profiles', {
   id: text('id').primaryKey(),
@@ -40,7 +43,10 @@ export const teacherProfiles = sqliteTable('teacher_profiles', {
   department: text('department'),
   avatarUrl: text('avatar_url'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  userIdIdx: index('teacher_profiles_user_id_idx').on(table.userId),
+  schoolIdIdx: index('teacher_profiles_school_id_idx').on(table.schoolId),
+}));
 
 export const studentProfiles = sqliteTable('student_profiles', {
   id: text('id').primaryKey(),
@@ -50,7 +56,10 @@ export const studentProfiles = sqliteTable('student_profiles', {
   studentIdNumber: text('student_id_number'),
   avatarUrl: text('avatar_url'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  userIdIdx: index('student_profiles_user_id_idx').on(table.userId),
+  schoolIdIdx: index('student_profiles_school_id_idx').on(table.schoolId),
+}));
 
 export const parentProfiles = sqliteTable('parent_profiles', {
   id: text('id').primaryKey(),
@@ -60,7 +69,10 @@ export const parentProfiles = sqliteTable('parent_profiles', {
   phoneNumber: text('phone_number'),
   avatarUrl: text('avatar_url'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  userIdIdx: index('parent_profiles_user_id_idx').on(table.userId),
+  schoolIdIdx: index('parent_profiles_school_id_idx').on(table.schoolId),
+}));
 
 // --- RELATIONSHIPS ---
 export const parentStudentRelations = sqliteTable('parent_student_relations', {
@@ -68,6 +80,8 @@ export const parentStudentRelations = sqliteTable('parent_student_relations', {
   studentProfileId: text('student_profile_id').references(() => studentProfiles.id).notNull(),
 }, (t) => ({
   pk: primaryKey({ columns: [t.parentProfileId, t.studentProfileId] }),
+  parentIdx: index('parent_student_relations_parent_idx').on(t.parentProfileId),
+  studentIdx: index('parent_student_relations_student_idx').on(t.studentProfileId),
 }));
 
 // --- ACADEMICS ---
@@ -77,13 +91,18 @@ export const classes = sqliteTable('classes', {
   teacherProfileId: text('teacher_profile_id').references(() => teacherProfiles.id).notNull(),
   name: text('name').notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  schoolIdIdx: index('classes_school_id_idx').on(table.schoolId),
+  teacherProfileIdIdx: index('classes_teacher_profile_id_idx').on(table.teacherProfileId),
+}));
 
 export const enrollments = sqliteTable('enrollments', {
   classId: text('class_id').references(() => classes.id).notNull(),
   studentProfileId: text('student_profile_id').references(() => studentProfiles.id).notNull(),
 }, (t) => ({
   pk: primaryKey({ columns: [t.classId, t.studentProfileId] }),
+  classIdx: index('enrollments_class_idx').on(t.classId),
+  studentIdx: index('enrollments_student_idx').on(t.studentProfileId),
 }));
 
 export const assignments = sqliteTable('assignments', {
@@ -93,26 +112,33 @@ export const assignments = sqliteTable('assignments', {
   description: text('description'),
   dueDate: text('due_date'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  classIdIdx: index('assignments_class_id_idx').on(table.classId),
+}));
 
 export const grades = sqliteTable('grades', {
   id: text('id').primaryKey(),
   assignmentId: text('assignment_id').references(() => assignments.id).notNull(),
   studentProfileId: text('student_profile_id').references(() => studentProfiles.id).notNull(),
-  score: integer('score'), // integer or real
+  score: integer('score'),
   feedback: text('feedback'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  assignmentIdIdx: index('grades_assignment_id_idx').on(table.assignmentId),
+  studentProfileIdIdx: index('grades_student_profile_id_idx').on(table.studentProfileId),
+}));
 
 export const announcements = sqliteTable('announcements', {
   id: text('id').primaryKey(),
   schoolId: text('school_id').references(() => schools.id).notNull(),
-  authorProfileId: text('author_profile_id'), // polymorphic reference, kept generic
+  authorProfileId: text('author_profile_id'),
   title: text('title').notNull(),
   content: text('content').notNull(),
   targetAudience: text('target_audience', { enum: ['all', 'teachers', 'students', 'parents'] }).notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  schoolIdIdx: index('announcements_school_id_idx').on(table.schoolId),
+}));
 
 // --- ENROLLMENT SUBMISSIONS (Raw Data) ---
 export const studentEnrollmentSubmissions = sqliteTable('student_enrollment_submissions', {
@@ -131,7 +157,9 @@ export const studentEnrollmentSubmissions = sqliteTable('student_enrollment_subm
   emergencyNumber: text('emergency_number'),
   status: text('status', { enum: ['pending', 'approved', 'rejected'] }).default('pending').notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  schoolIdIdx: index('student_enrollment_submissions_school_id_idx').on(table.schoolId),
+}));
 
 // --- MESSAGES & COMMUNICATIONS ---
 export const messages = sqliteTable('messages', {
@@ -143,7 +171,11 @@ export const messages = sqliteTable('messages', {
   content: text('content').notNull(),
   isRead: integer('is_read', { mode: 'boolean' }).default(false).notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  schoolIdIdx: index('messages_school_id_idx').on(table.schoolId),
+  senderIdIdx: index('messages_sender_id_idx').on(table.senderId),
+  receiverIdIdx: index('messages_receiver_id_idx').on(table.receiverId),
+}));
 
 // --- ATTENDANCE & ROLL CALLS ---
 export const attendance = sqliteTable('attendance', {
@@ -154,7 +186,11 @@ export const attendance = sqliteTable('attendance', {
   status: text('status', { enum: ['present', 'absent', 'tardy'] }).notNull(),
   remarks: text('remarks'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  classIdIdx: index('attendance_class_id_idx').on(table.classId),
+  studentProfileIdIdx: index('attendance_student_profile_id_idx').on(table.studentProfileId),
+  dateIdx: index('attendance_date_idx').on(table.date),
+}));
 
 // --- PORTFOLIO EVIDENCE ---
 export const portfolioEvidence = sqliteTable('portfolio_evidence', {
@@ -162,12 +198,15 @@ export const portfolioEvidence = sqliteTable('portfolio_evidence', {
   classId: text('class_id').references(() => classes.id).notNull(),
   studentProfileId: text('student_profile_id').references(() => studentProfiles.id).notNull(),
   title: text('title').notNull(),
-  type: text('type').notNull(), // 'Assignment', 'Project', 'Quiz', 'Other'
+  type: text('type').notNull(),
   description: text('description'),
   imageUrl: text('image_url').notNull(),
-  tags: text('tags'), // Comma-separated list of tags
+  tags: text('tags'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  classIdIdx: index('portfolio_evidence_class_id_idx').on(table.classId),
+  studentProfileIdIdx: index('portfolio_evidence_student_profile_id_idx').on(table.studentProfileId),
+}));
 
 // --- FINANCIALS (PAYMENTS & FEES) ---
 export const payments = sqliteTable('payments', {
@@ -182,7 +221,10 @@ export const payments = sqliteTable('payments', {
   reference: text('reference').unique(),
   date: text('date').notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  schoolIdIdx: index('payments_school_id_idx').on(table.schoolId),
+  studentProfileIdIdx: index('payments_student_profile_id_idx').on(table.studentProfileId),
+}));
 
 // --- ACTIVITY LOGS ---
 export const activityLogs = sqliteTable('activity_logs', {
@@ -193,7 +235,9 @@ export const activityLogs = sqliteTable('activity_logs', {
   detail: text('detail'),
   color: text('color'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  schoolIdIdx: index('activity_logs_school_id_idx').on(table.schoolId),
+}));
 
 // --- AUDIT LOGS ---
 export const auditLogs = sqliteTable('audit_logs', {
@@ -203,7 +247,9 @@ export const auditLogs = sqliteTable('audit_logs', {
   action: text('action').notNull(),
   category: text('category').notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  schoolIdIdx: index('audit_logs_school_id_idx').on(table.schoolId),
+}));
 
 // --- SETTINGS / CONFIG ---
 export const schoolSettings = sqliteTable('school_settings', {
@@ -229,20 +275,25 @@ export const feeStructures = sqliteTable('fee_structures', {
   classId: text('class_id').references(() => classes.id).notNull(),
   term: text('term').notNull(),
   totalAmount: integer('total_amount').notNull(),
-  breakdown: text('breakdown').notNull(), // JSON string representing breakdown items
+  breakdown: text('breakdown').notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  schoolIdIdx: index('fee_structures_school_id_idx').on(table.schoolId),
+  classIdIdx: index('fee_structures_class_id_idx').on(table.classId),
+}));
 
 // --- TIMETABLES ---
 export const timetables = sqliteTable('timetables', {
   id: text('id').primaryKey(),
   schoolId: text('school_id').references(() => schools.id).notNull(),
   term: text('term').notNull(),
-  data: text('data').notNull(), // JSON string representing the master timetable
+  data: text('data').notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  schoolIdIdx: index('timetables_school_id_idx').on(table.schoolId),
+}));
 
-// --- TEACHER REMARKS (AI GENERATED OR MANUAL) ---
+// --- TEACHER REMARKS ---
 export const teacherRemarks = sqliteTable('teacher_remarks', {
   id: text('id').primaryKey(),
   studentProfileId: text('student_profile_id').references(() => studentProfiles.id).notNull(),
@@ -250,7 +301,10 @@ export const teacherRemarks = sqliteTable('teacher_remarks', {
   remark: text('remark').notNull(),
   term: text('term'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => ({
+  studentProfileIdIdx: index('teacher_remarks_student_profile_id_idx').on(table.studentProfileId),
+  teacherProfileIdIdx: index('teacher_remarks_teacher_profile_id_idx').on(table.teacherProfileId),
+}));
 
 // --- DELEGATED RESPONSIBILITIES ---
 export const delegatedResponsibilities = sqliteTable('delegated_responsibilities', {
@@ -259,5 +313,7 @@ export const delegatedResponsibilities = sqliteTable('delegated_responsibilities
   teacherProfileId: text('teacher_profile_id').references(() => teacherProfiles.id).notNull(),
   responsibility: text('responsibility', { enum: ['admissions', 'finances', 'timetable', 'announcements'] }).notNull(),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
-
+}, (table) => ({
+  schoolIdIdx: index('delegated_responsibilities_school_id_idx').on(table.schoolId),
+  teacherProfileIdIdx: index('delegated_responsibilities_teacher_profile_id_idx').on(table.teacherProfileId),
+}));

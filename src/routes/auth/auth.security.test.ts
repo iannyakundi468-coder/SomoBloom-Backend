@@ -7,6 +7,7 @@ import * as schema from "../../db/schema";
 import migration0000 from "../../../drizzle/0000_jazzy_electro.sql?raw";
 import migration0001 from "../../../drizzle/0001_supreme_vampiro.sql?raw";
 import migration0002 from "../../../drizzle/0002_little_ravenous.sql?raw";
+import migration0003 from "../../../drizzle/0003_add_performance_indexes.sql?raw";
 
 async function applyMigration(d1: D1Database, migrationText: string) {
   const statements = migrationText.split("--> statement-breakpoint");
@@ -52,6 +53,7 @@ describe("Security Hardening & Protection Tests", () => {
     await applyMigration(d1, migration0000);
     await applyMigration(d1, migration0001);
     await applyMigration(d1, migration0002);
+    await applyMigration(d1, migration0003);
   });
 
   describe("Config & Secret Management Security", () => {

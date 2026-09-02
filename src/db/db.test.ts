@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import migration0000 from "../../drizzle/0000_jazzy_electro.sql?raw";
 import migration0001 from "../../drizzle/0001_supreme_vampiro.sql?raw";
 import migration0002 from "../../drizzle/0002_little_ravenous.sql?raw";
+import migration0003 from "../../drizzle/0003_add_performance_indexes.sql?raw";
 
 // Helper to run Drizzle migrations sequentially
 async function applyMigration(d1: D1Database, migrationText: string) {
@@ -59,6 +60,7 @@ describe("Database Isolation Tests", () => {
     await applyMigration(d1, migration0000);
     await applyMigration(d1, migration0001);
     await applyMigration(d1, migration0002);
+    await applyMigration(d1, migration0003);
   });
 
   it("should insert and retrieve a school inside the isolated D1 emulator", async () => {

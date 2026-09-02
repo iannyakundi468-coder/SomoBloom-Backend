@@ -8,9 +8,11 @@ import { getJwtSecret, getEncryptionSecret } from '../../lib/config';
 import { eq, and, desc } from 'drizzle-orm';
 import type { Bindings } from '../../index';
 
+import { admissionsRouter } from './admissions';
+
 export const adminRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
 
-// Apply JWT middleware to all admin routes
+// 1. Apply JWT middleware to all admin routes
 adminRouter.use('/*', (c, next) => {
   const jwtMiddleware = jwt({
     secret: getJwtSecret(c.env),
@@ -19,25 +21,8 @@ adminRouter.use('/*', (c, next) => {
   return jwtMiddleware(c, next);
 });
 
-// Middleware to ensure the user is an admin or a teacher with delegated access
+// 2. Middleware to ensure the user is an admin or a teacher with delegated access
 adminRouter.use('/*', async (c, next) => {
-  // Ensure the delegated_responsibilities table exists in D1 SQLite
-  try {
-    await c.env.DB.prepare(`
-      CREATE TABLE IF NOT EXISTS delegated_responsibilities (
-        id TEXT PRIMARY KEY NOT NULL,
-        school_id TEXT NOT NULL,
-        teacher_profile_id TEXT NOT NULL,
-        responsibility TEXT NOT NULL,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE NO ACTION ON DELETE NO ACTION,
-        FOREIGN KEY (teacher_profile_id) REFERENCES teacher_profiles(id) ON UPDATE NO ACTION ON DELETE NO ACTION
-      )
-    `).run();
-  } catch (err) {
-    console.error('Failed to auto-migrate delegated_responsibilities:', err);
-  }
-
   const payload = c.get('jwtPayload');
   
   if (payload.role === 'admin') {
@@ -48,13 +33,11 @@ adminRouter.use('/*', async (c, next) => {
     const path = c.req.path;
     const db = getDb(c.env.DB);
     
-    // Find teacher profile first
     const teacher = await db.select().from(teacherProfiles).where(eq(teacherProfiles.userId, payload.sub)).get();
     if (!teacher) {
       return c.json({ error: 'Unauthorized: Teacher profile not found' }, 403);
     }
     
-    // Check delegated responsibilities
     const delegations = await db.select().from(delegatedResponsibilities)
       .where(and(
         eq(delegatedResponsibilities.teacherProfileId, teacher.id),
@@ -63,9 +46,8 @@ adminRouter.use('/*', async (c, next) => {
       
     const activeResponsibilityTypes = delegations.map(d => d.responsibility);
     
-    // Map paths to responsibilities
     let requiredResponsibility: 'announcements' | 'admissions' | 'finances' | 'timetable' | null = null;
-    if (path.includes('/enrollments')) {
+    if (path.includes('/enrollments') || path.includes('/admissions')) {
       requiredResponsibility = 'admissions';
     } else if (path.includes('/fees') || path.includes('/payments')) {
       requiredResponsibility = 'finances';
@@ -76,7 +58,6 @@ adminRouter.use('/*', async (c, next) => {
     }
     
     if (requiredResponsibility && activeResponsibilityTypes.includes(requiredResponsibility)) {
-      // Temporarily mock profileId for compatibility with any downstream code expecting it
       payload.profileId = teacher.id;
       c.set('jwtPayload', payload);
       return await next();
@@ -87,6 +68,8 @@ adminRouter.use('/*', async (c, next) => {
 });
 
 adminRouter.get('/ping', (c) => c.json({ message: 'Admin API operational' }));
+
+adminRouter.route('/admissions', admissionsRouter);
 
 adminRouter.get('/me', async (c) => {
   const payload = c.get('jwtPayload');
