@@ -85,6 +85,25 @@ export const parentStudentRelations = sqliteTable('parent_student_relations', {
 }));
 
 // --- ACADEMICS ---
+export const subjects = sqliteTable('subjects', {
+  id: text('id').primaryKey(),
+  schoolId: text('school_id').references(() => schools.id).notNull(),
+  name: text('name').notNull(),
+  code: text('code'),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => ({
+  schoolIdIdx: index('subjects_school_id_idx').on(table.schoolId),
+}));
+
+export const classSubjects = sqliteTable('class_subjects', {
+  classId: text('class_id').references(() => classes.id).notNull(),
+  subjectId: text('subject_id').references(() => subjects.id).notNull(),
+  teacherProfileId: text('teacher_profile_id').references(() => teacherProfiles.id), // Specific subject teacher
+}, (t) => ({
+  pk: primaryKey({ columns: [t.classId, t.subjectId] }),
+  classIdx: index('class_subjects_class_idx').on(t.classId),
+  subjectIdx: index('class_subjects_subject_idx').on(t.subjectId),
+}));
 export const classes = sqliteTable('classes', {
   id: text('id').primaryKey(),
   schoolId: text('school_id').references(() => schools.id).notNull(),

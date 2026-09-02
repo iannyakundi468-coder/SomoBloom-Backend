@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions, activityLogs, auditLogs, schoolSettings, feeStructures, payments, timetables, announcements, delegatedResponsibilities } from '../../db/schema';
+import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions, activityLogs, auditLogs, schoolSettings, feeStructures, payments, timetables, announcements, delegatedResponsibilities, subjects, classSubjects } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { getJwtSecret, getEncryptionSecret } from '../../lib/config';
@@ -142,9 +142,43 @@ adminRouter.post('/teachers', async (c) => {
 });
 
 adminRouter.post('/students', async (c) => {
-  return c.json({ 
-    error: 'Student creation is restricted to Class Teachers. Please use the Teacher Portal or the /teacher/classes/:classId/students endpoint.' 
-  }, 403);
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { name, email, password, studentIdNumber } = body;
+
+  if (!name || !email || !password) {
+    return c.json({ error: 'Name, email, and password are required' }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  const encryptionSecret = getEncryptionSecret(c.env);
+  const emailHash = await hashIdentifier(email, encryptionSecret);
+  const encryptedEmail = await encryptData(email, encryptionSecret);
+
+  const existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
+  if (existingUser) {
+    return c.json({ error: 'User with this email already exists' }, 400);
+  }
+
+  const userId = crypto.randomUUID();
+  const studentProfileId = crypto.randomUUID();
+  const hashedPassword = await hashPassword(password);
+
+  try {
+    await db.batch([
+      db.insert(users).values({ id: userId, emailHash, encryptedEmail, passwordHash: hashedPassword }),
+      db.insert(studentProfiles).values({
+        id: studentProfileId,
+        userId,
+        schoolId: payload.schoolId,
+        name,
+        studentIdNumber
+      })
+    ]);
+    return c.json({ message: 'Student created successfully', student: { id: studentProfileId, userId, name, email } }, 201);
+  } catch (error: any) {
+    return c.json({ error: 'Failed to create student' }, 500);
+  }
 });
 
 adminRouter.post('/parents', async (c) => {
@@ -246,6 +280,21 @@ adminRouter.post('/classes/:classId/enrollments', async (c) => {
     return c.json({ message: 'Student enrolled in class successfully' }, 201);
   } catch (error: any) {
     return c.json({ error: 'Failed to enroll student' }, 500);
+  }
+});
+
+adminRouter.delete('/classes/:classId/enrollments/:studentId', async (c) => {
+  const { classId, studentId } = c.req.param();
+  const db = getDb(c.env.DB);
+  
+  try {
+    await db.delete(enrollments).where(and(
+      eq(enrollments.classId, classId),
+      eq(enrollments.studentProfileId, studentId)
+    ));
+    return c.json({ message: 'Student unenrolled from class successfully' });
+  } catch (error: any) {
+    return c.json({ error: 'Failed to unenroll student' }, 500);
   }
 });
 
@@ -352,6 +401,13 @@ adminRouter.get('/users', async (c) => {
     .where(eq(parentProfiles.schoolId, payload.schoolId))
     .all();
 
+    const parentRelations = await db.select().from(parentStudentRelations).all();
+    
+    const parentsWithChildren = parents.map(p => {
+      const childrenIds = parentRelations.filter(r => r.parentProfileId === p.id).map(r => r.studentProfileId);
+      return { ...p, children: childrenIds };
+    });
+
     
     const encryptionSecret = getEncryptionSecret(c.env);
 
@@ -365,7 +421,7 @@ adminRouter.get('/users', async (c) => {
       ...admins.map(a => ({ ...a, role: 'admin', status: 'active' })),
       ...teachers.map(t => ({ ...t, role: 'teacher', status: 'active' })),
       ...students.map(s => ({ ...s, role: 'student', status: 'active' })),
-      ...parents.map(p => ({ ...p, role: 'parent', status: 'active' }))
+      ...parentsWithChildren.map(p => ({ ...p, role: 'parent', status: 'active' }))
     ].map(decryptUserEmail));
 
     return c.json({ users: combinedUsers });
@@ -607,6 +663,111 @@ adminRouter.delete('/classes/:id', async (c) => {
     return c.json({ error: 'Failed to delete class' }, 500);
   }
 });
+
+// --- SUBJECTS CRUD ---
+// GET /api/admin/subjects
+adminRouter.get('/subjects', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  try {
+    const list = await db.select().from(subjects).where(eq(subjects.schoolId, payload.schoolId)).all();
+    return c.json({ subjects: list });
+  } catch (error: any) {
+    return c.json({ error: 'Failed to fetch subjects' }, 500);
+  }
+});
+
+// POST /api/admin/subjects
+adminRouter.post('/subjects', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { name, code } = body;
+  if (!name) return c.json({ error: 'Name is required' }, 400);
+
+  const db = getDb(c.env.DB);
+  const id = crypto.randomUUID();
+  try {
+    await db.insert(subjects).values({ id, schoolId: payload.schoolId, name, code });
+    const newSubject = await db.select().from(subjects).where(eq(subjects.id, id)).get();
+    return c.json({ message: 'Subject created', subject: newSubject }, 201);
+  } catch (error: any) {
+    return c.json({ error: 'Failed to create subject' }, 500);
+  }
+});
+
+// PUT /api/admin/subjects/:id
+adminRouter.put('/subjects/:id', async (c) => {
+  const { id } = c.req.param();
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { name, code } = body;
+
+  const db = getDb(c.env.DB);
+  try {
+    const existing = await db.select().from(subjects).where(and(eq(subjects.id, id), eq(subjects.schoolId, payload.schoolId))).get();
+    if (!existing) return c.json({ error: 'Subject not found' }, 404);
+
+    await db.update(subjects).set({
+      name: name || existing.name,
+      code: code !== undefined ? code : existing.code
+    }).where(eq(subjects.id, id));
+
+    return c.json({ message: 'Subject updated successfully' });
+  } catch (error: any) {
+    return c.json({ error: 'Failed to update subject' }, 500);
+  }
+});
+
+// DELETE /api/admin/subjects/:id
+adminRouter.delete('/subjects/:id', async (c) => {
+  const { id } = c.req.param();
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  try {
+    const existing = await db.select().from(subjects).where(and(eq(subjects.id, id), eq(subjects.schoolId, payload.schoolId))).get();
+    if (!existing) return c.json({ error: 'Subject not found' }, 404);
+
+    await db.batch([
+      db.delete(classSubjects).where(eq(classSubjects.subjectId, id)),
+      db.delete(subjects).where(eq(subjects.id, id))
+    ]);
+
+    return c.json({ message: 'Subject deleted successfully' });
+  } catch (error: any) {
+    return c.json({ error: 'Failed to delete subject' }, 500);
+  }
+});
+
+// --- CLASS SUBJECTS ---
+// POST /api/admin/classes/:classId/subjects
+adminRouter.post('/classes/:classId/subjects', async (c) => {
+  const { classId } = c.req.param();
+  const body = await c.req.json();
+  const { subjectId, teacherProfileId } = body;
+
+  if (!subjectId) return c.json({ error: 'subjectId is required' }, 400);
+
+  const db = getDb(c.env.DB);
+  try {
+    await db.insert(classSubjects).values({ classId, subjectId, teacherProfileId });
+    return c.json({ message: 'Subject assigned to class successfully' }, 201);
+  } catch (error: any) {
+    return c.json({ error: 'Failed to assign subject to class' }, 500);
+  }
+});
+
+// DELETE /api/admin/classes/:classId/subjects/:subjectId
+adminRouter.delete('/classes/:classId/subjects/:subjectId', async (c) => {
+  const { classId, subjectId } = c.req.param();
+  const db = getDb(c.env.DB);
+  try {
+    await db.delete(classSubjects).where(and(eq(classSubjects.classId, classId), eq(classSubjects.subjectId, subjectId)));
+    return c.json({ message: 'Subject removed from class successfully' });
+  } catch (error: any) {
+    return c.json({ error: 'Failed to remove subject from class' }, 500);
+  }
+});
+
 
 // Update Admin Profile
 adminRouter.put('/me', async (c) => {

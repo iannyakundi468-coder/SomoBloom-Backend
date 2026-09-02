@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { studentProfiles, classes, enrollments, assignments, grades, portfolioEvidence, attendance } from '../../db/schema';
+import { studentProfiles, classes, enrollments, assignments, grades, portfolioEvidence, attendance, subjects, classSubjects } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
 import { getJwtSecret } from '../../lib/config';
 import { eq, and, inArray } from 'drizzle-orm';
@@ -61,7 +61,32 @@ studentRouter.get('/classes', async (c) => {
   .where(eq(enrollments.studentProfileId, profile.id))
   .all();
 
-  return c.json({ classes: studentClasses });
+  if (studentClasses.length === 0) {
+    return c.json({ classes: [] });
+  }
+
+  const classIds = studentClasses.map(cls => cls.id);
+
+  const allClassSubjects = await db.select({
+    classId: classSubjects.classId,
+    subjectId: subjects.id,
+    name: subjects.name,
+    code: subjects.code,
+    teacherProfileId: classSubjects.teacherProfileId
+  })
+  .from(classSubjects)
+  .innerJoin(subjects, eq(classSubjects.subjectId, subjects.id))
+  .where(inArray(classSubjects.classId, classIds))
+  .all();
+
+  const enrichedClasses = studentClasses.map(cls => {
+    return {
+      ...cls,
+      subjects: allClassSubjects.filter(s => s.classId === cls.id)
+    };
+  });
+
+  return c.json({ classes: enrichedClasses });
 });
 
 // Fetch assignments for a class

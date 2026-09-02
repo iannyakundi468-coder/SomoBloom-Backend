@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence, messages, teacherRemarks, timetables, delegatedResponsibilities } from '../../db/schema';
+import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence, messages, teacherRemarks, timetables, delegatedResponsibilities, subjects, classSubjects } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { getJwtSecret, getEncryptionSecret } from '../../lib/config';
@@ -122,6 +122,19 @@ teacherRouter.get('/classes', async (c) => {
     .where(inArray(assignments.classId, classIds))
     .all();
 
+    // 4. Bulk fetch all subjects for these classes
+    const allClassSubjects = await db.select({
+      classId: classSubjects.classId,
+      subjectId: subjects.id,
+      name: subjects.name,
+      code: subjects.code,
+      teacherProfileId: classSubjects.teacherProfileId
+    })
+    .from(classSubjects)
+    .innerJoin(subjects, eq(classSubjects.subjectId, subjects.id))
+    .where(inArray(classSubjects.classId, classIds))
+    .all();
+
     // Enrich teacher classes completely in-memory using highly-performant JavaScript filters
     const enrichedClasses = await Promise.all(teacherClasses.map(async (cls: any) => {
       const classStudents = allEnrollments.filter((e: any) => e.classId === cls.id);
@@ -173,13 +186,16 @@ teacherRouter.get('/classes', async (c) => {
         };
       }));
 
+      const classAssignedSubjects = allClassSubjects.filter((s: any) => s.classId === cls.id);
+
       return {
         id: cls.id,
         name: cls.name,
         grade: cls.name,
         term: 'Term 2',
         role: 'home',
-        students: enrichedStudents
+        students: enrichedStudents,
+        subjects: classAssignedSubjects
       };
     }));
 
