@@ -31,8 +31,13 @@ app.use('/api/*', (c, next) => {
       if (!origin) return allowed[0];
       if (allowed.includes(origin)) return origin;
       
-      // Allow any somobloom.com subdomain
-      if (origin.endsWith('.somobloom.com')) {
+      // Allow any somobloom.com or somobloom.co.ke domain or subdomain
+      if (
+        origin === 'https://somobloom.com' ||
+        origin.endsWith('.somobloom.com') ||
+        origin === 'https://somobloom.co.ke' ||
+        origin.endsWith('.somobloom.co.ke')
+      ) {
         return origin;
       }
 

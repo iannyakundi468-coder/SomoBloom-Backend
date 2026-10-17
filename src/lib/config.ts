@@ -57,7 +57,10 @@ export function getAllowedOrigins(env: AppEnv): string[] {
     'https://app.somobloom.com',
     'https://admin.somobloom.com',
     'https://staging-app.somobloom.com',
-    'https://staging.somobloom.com'
+    'https://staging.somobloom.com',
+    'https://somobloom.co.ke',
+    'https://app.somobloom.co.ke',
+    'https://admin.somobloom.co.ke'
   ];
 
   if (env && env.ALLOWED_ORIGINS) {

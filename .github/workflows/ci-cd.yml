@@ -26,6 +26,9 @@ jobs:
       - name: Verify Drizzle Schema Integrity
         run: npm run db:generate
 
+      - name: Run TypeScript Verification
+        run: npm run typecheck
+
       - name: Run Test Suite (Vitest + D1 In-Memory Test DB)
         run: npm test
 

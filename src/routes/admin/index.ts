@@ -1144,6 +1144,7 @@ adminRouter.post('/ask-assistant', async (c) => {
   }
 
   try {
+    const db = getDb(c.env.DB);
     const school = await db.select().from(schools).where(eq(schools.id, payload.schoolId)).get();
     const schoolName = school?.name || 'the school';
     const systemPrompt = `You are a highly formal and professional financial and administrative AI assistant for a school principal at ${schoolName}.

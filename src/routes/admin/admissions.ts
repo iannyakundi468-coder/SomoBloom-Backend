@@ -146,7 +146,7 @@ admissionsRouter.post('/:id/approve', async (c) => {
       })
     );
 
-    await db.batch(dbBatchOps);
+    await (db.batch as any)(dbBatchOps);
 
     return c.json({
       message: `Enrollment submission approved successfully. Student profile created.`,

@@ -1,6 +1,8 @@
 import { hashPassword } from '../src/lib/auth';
 import { hashIdentifier, encryptData } from '../src/lib/encryption';
 
+declare const process: any;
+
 const DEFAULT_ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || 'somobloom_super_secret_encryption_key_123';
 
 async function generateSeedSql() {

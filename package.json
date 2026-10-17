@@ -13,6 +13,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply somobloom_db --remote",
     "db:migrate:staging": "wrangler d1 migrations apply somobloom_db_staging --remote --env staging",
     "db:seed": "node scripts/generate_seed.js > scripts/seed.sql",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },

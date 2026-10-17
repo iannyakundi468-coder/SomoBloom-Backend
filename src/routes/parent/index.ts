@@ -360,7 +360,7 @@ parentRouter.post('/ask-assistant', async (c) => {
   }
 
   try {
-    const payload = c.get('jwtPayload');
+    const db = getDb(c.env.DB);
     const school = await db.select().from(schools).where(eq(schools.id, payload.schoolId)).get();
     const schoolName = school?.name || 'the school';
     const childName = childData?.name || 'your child';

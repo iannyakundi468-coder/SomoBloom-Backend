@@ -7,7 +7,7 @@ import * as schema from "../../db/schema";
 import migration0000 from "../../../drizzle/0000_jazzy_electro.sql?raw";
 import migration0001 from "../../../drizzle/0001_supreme_vampiro.sql?raw";
 import migration0002 from "../../../drizzle/0002_little_ravenous.sql?raw";
-import migration0003 from "../../../drizzle/0003_add_performance_indexes.sql?raw";
+import migration0003 from "../../../drizzle/0003_nice_morlocks.sql?raw";
 
 async function applyMigration(d1: D1Database, migrationText: string) {
   const statements = migrationText.split("--> statement-breakpoint");
