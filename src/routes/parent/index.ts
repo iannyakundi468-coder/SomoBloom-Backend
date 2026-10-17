@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments, announcements, classes, teacherProfiles, enrollments, portfolioEvidence, payments, feeStructures, schools } from '../../db/schema';
+import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments, announcements, classes, teacherProfiles, enrollments, portfolioEvidence, payments, feeStructures, schools, activityLogs } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
 import { getJwtSecret } from '../../lib/config';
 import { eq, and, or, desc } from 'drizzle-orm';
@@ -277,7 +277,7 @@ parentRouter.get('/students/:studentId/fees', async (c) => {
 parentRouter.post('/payments', async (c) => {
   const payload = c.get('jwtPayload');
   const body = await c.req.json();
-  const { studentId, amount, method } = body;
+  const { studentId, amount, method, phoneNumber, term } = body;
   const db = getDb(c.env.DB);
 
   try {
@@ -287,10 +287,28 @@ parentRouter.post('/payments', async (c) => {
     const relation = await db.select().from(parentStudentRelations)
       .where(and(eq(parentStudentRelations.parentProfileId, profile.id), eq(parentStudentRelations.studentProfileId, studentId)))
       .get();
-    if (!relation) return c.json({ error: 'Not authorized' }, 403);
+    if (!relation) return c.json({ error: 'Not authorized for this student' }, 403);
+
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return c.json({ error: 'Invalid payment amount' }, 400);
+    }
+
+    // Determine academic term dynamically
+    let activeTerm = term;
+    if (!activeTerm) {
+      const activeFeeStructure = await db.select().from(feeStructures)
+        .where(eq(feeStructures.schoolId, profile.schoolId))
+        .orderBy(desc(feeStructures.createdAt))
+        .get();
+      activeTerm = activeFeeStructure?.term || `Term ${Math.min(3, Math.ceil((new Date().getMonth() + 1) / 4))} ${new Date().getFullYear()}`;
+    }
 
     const paymentId = crypto.randomUUID();
-    const ref = `TXN-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+    const isMpesa = method === 'mpesa';
+    const ref = isMpesa 
+      ? `MP${Math.random().toString(36).substring(2, 10).toUpperCase()}`
+      : `TXN-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
     const dt = new Date().toISOString().split('T')[0];
 
     await db.insert(payments).values({
@@ -298,15 +316,29 @@ parentRouter.post('/payments', async (c) => {
       schoolId: profile.schoolId,
       studentProfileId: studentId,
       parentName: profile.name,
-      amount: parseFloat(amount),
-      method: method === 'mpesa' ? 'Mobile Money (M-PESA)' : method === 'card' ? 'Credit/Debit Card' : 'Bank Transfer',
+      amount: parsedAmount,
+      method: isMpesa ? 'Mobile Money (M-PESA)' : method === 'card' ? 'Credit/Debit Card' : 'Bank Transfer',
       status: 'successful',
-      term: 'Term 2 2026',
+      term: activeTerm,
       reference: ref,
       date: dt
     });
 
-    return c.json({ message: 'Payment recorded successfully' });
+    // Create an audit trail log for the school administrator
+    await db.insert(activityLogs).values({
+      id: crypto.randomUUID(),
+      schoolId: profile.schoolId,
+      user: profile.name,
+      action: 'Fee Payment',
+      detail: `Received KES ${parsedAmount.toLocaleString()} via ${isMpesa ? 'M-PESA' : method} (Ref: ${ref})`,
+      color: 'emerald',
+    });
+
+    return c.json({ 
+      message: 'Payment recorded successfully', 
+      reference: ref, 
+      paymentId 
+    });
   } catch (error: any) {
     console.error('Failed to submit payment:', error);
     return c.json({ error: 'Failed to submit payment' }, 500);
