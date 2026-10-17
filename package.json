@@ -7,11 +7,12 @@
     "dev": "wrangler dev",
     "build": "echo 'No build step required for Workers'",
     "deploy": "wrangler deploy --minify",
+    "deploy:staging": "wrangler deploy --env staging --minify",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "wrangler d1 migrations apply somobloom_db --local",
     "db:migrate:remote": "wrangler d1 migrations apply somobloom_db --remote",
     "db:migrate:staging": "wrangler d1 migrations apply somobloom_db_staging --remote --env staging",
-    "db:seed": "npx tsx scripts/seed.ts",
+    "db:seed": "node scripts/generate_seed.js > scripts/seed.sql",
     "test": "vitest run",
     "test:watch": "vitest"
   },

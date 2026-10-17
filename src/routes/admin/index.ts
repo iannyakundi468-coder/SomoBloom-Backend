@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { users, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions, activityLogs, auditLogs, schoolSettings, feeStructures, payments, timetables, announcements, delegatedResponsibilities, subjects, classSubjects } from '../../db/schema';
+import { users, schools, adminProfiles, teacherProfiles, studentProfiles, parentProfiles, classes, parentStudentRelations, enrollments, studentEnrollmentSubmissions, activityLogs, auditLogs, schoolSettings, feeStructures, payments, timetables, announcements, delegatedResponsibilities, subjects, classSubjects } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { getJwtSecret, getEncryptionSecret } from '../../lib/config';
@@ -1144,7 +1144,9 @@ adminRouter.post('/ask-assistant', async (c) => {
   }
 
   try {
-    const systemPrompt = `You are a highly formal and professional financial and administrative AI assistant for a school principal at SomoBloom Academy.
+    const school = await db.select().from(schools).where(eq(schools.id, payload.schoolId)).get();
+    const schoolName = school?.name || 'the school';
+    const systemPrompt = `You are a highly formal and professional financial and administrative AI assistant for a school principal at ${schoolName}.
 You help interpret financial data and student metrics. Here is the current data context:
 Students: ${metrics?.totalStudents || 'Unknown'}
 Teachers: ${metrics?.totalTeachers || 'Unknown'}

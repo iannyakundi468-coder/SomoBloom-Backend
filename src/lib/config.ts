@@ -55,7 +55,9 @@ export function getAllowedOrigins(env: AppEnv): string[] {
     'http://127.0.0.1:3000',
     'https://somobloom.com',
     'https://app.somobloom.com',
-    'https://admin.somobloom.com'
+    'https://admin.somobloom.com',
+    'https://staging-app.somobloom.com',
+    'https://staging.somobloom.com'
   ];
 
   if (env && env.ALLOWED_ORIGINS) {

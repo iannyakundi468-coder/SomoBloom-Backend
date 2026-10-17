@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence, messages, teacherRemarks, timetables, delegatedResponsibilities, subjects, classSubjects } from '../../db/schema';
+import { teacherProfiles, classes, enrollments, studentProfiles, users, assignments, grades, attendance, portfolioEvidence, messages, teacherRemarks, timetables, delegatedResponsibilities, subjects, classSubjects, schools } from '../../db/schema';
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { getJwtSecret, getEncryptionSecret } from '../../lib/config';
@@ -64,9 +64,12 @@ teacherRouter.get('/me', async (c) => {
       eq(delegatedResponsibilities.schoolId, payload.schoolId)
     )).all();
 
+  const school = await db.select().from(schools).where(eq(schools.id, payload.schoolId)).get();
+
   return c.json({ 
     profile: {
       ...profile,
+      schoolName: school?.name || '',
       delegations: delegations.map(d => d.responsibility)
     } 
   });

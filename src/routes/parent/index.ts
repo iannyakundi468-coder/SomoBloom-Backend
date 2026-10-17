@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments, announcements, classes, teacherProfiles, enrollments, portfolioEvidence, payments, feeStructures } from '../../db/schema';
+import { parentProfiles, studentProfiles, parentStudentRelations, grades, assignments, announcements, classes, teacherProfiles, enrollments, portfolioEvidence, payments, feeStructures, schools } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
 import { getJwtSecret } from '../../lib/config';
 import { eq, and, or, desc } from 'drizzle-orm';
@@ -328,11 +328,14 @@ parentRouter.post('/ask-assistant', async (c) => {
   }
 
   try {
+    const payload = c.get('jwtPayload');
+    const school = await db.select().from(schools).where(eq(schools.id, payload.schoolId)).get();
+    const schoolName = school?.name || 'the school';
     const childName = childData?.name || 'your child';
     const balance = childData?.fees?.totalBalance || 0;
     const progress = childData?.progress ? JSON.stringify(childData.progress) : 'No progress data available';
 
-    const systemPrompt = `You are a highly formal, polite, and professional parent AI assistant for SomoBloom Academy.
+    const systemPrompt = `You are a highly formal, polite, and professional parent AI assistant for ${schoolName}.
 You help parents interpret their child's progress, grades, and fee balances.
 Here is the context for the current child (${childName}):
 Fee Balance: KES ${balance}

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { jwt } from 'hono/jwt';
 import { getDb } from '../../db/client';
-import { studentProfiles, classes, enrollments, assignments, grades, portfolioEvidence, attendance, subjects, classSubjects } from '../../db/schema';
+import { studentProfiles, classes, enrollments, assignments, grades, portfolioEvidence, attendance, subjects, classSubjects, schools } from '../../db/schema';
 import type { JwtPayload } from '../../lib/auth';
 import { getJwtSecret } from '../../lib/config';
 import { eq, and, inArray } from 'drizzle-orm';
@@ -39,7 +39,14 @@ studentRouter.get('/me', async (c) => {
   if (!profile) {
     return c.json({ error: 'Profile not found' }, 404);
   }
-  return c.json({ profile });
+
+  const school = await db.select().from(schools).where(eq(schools.id, profile.schoolId)).get();
+  return c.json({ 
+    profile: {
+      ...profile,
+      school: school?.name || ''
+    } 
+  });
 });
 
 // List enrolled classes for the student

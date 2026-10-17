@@ -25,10 +25,22 @@ const app = new Hono<{ Bindings: Bindings }>();
 // Configure strict CORS policy for all API routes
 app.use('/api/*', (c, next) => {
   const allowed = getAllowedOrigins(c.env);
+  const isProduction = c.env.ENVIRONMENT === 'production';
   const corsMiddleware = cors({
     origin: (origin) => {
       if (!origin) return allowed[0];
       if (allowed.includes(origin)) return origin;
+      
+      // Allow any somobloom.com subdomain
+      if (origin.endsWith('.somobloom.com')) {
+        return origin;
+      }
+
+      // Allow staging/preview deployments in non-production environments
+      if (!isProduction && (origin.endsWith('.workers.dev') || origin.endsWith('.pages.dev'))) {
+        return origin;
+      }
+
       return null;
     },
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

@@ -25,12 +25,18 @@ preview_id = "da3c2265e4824b20b7b94a7b79153f6b"
 binding = "ANALYTICS"
 dataset = "somobloom_analytics"
 
+[vars]
+ENVIRONMENT = "production"
+
 # =====================================================================
 # Staging Environment Configuration
 # Deployed using: wrangler deploy --env staging
 # =====================================================================
 [env.staging]
 name = "somobloom-backend-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
 
 [[env.staging.d1_databases]]
 binding = "DB"
