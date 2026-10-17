@@ -1,4 +1,4 @@
-CREATE TABLE `fee_structures` (
+CREATE TABLE IF NOT EXISTS `fee_structures` (
 	`id` text PRIMARY KEY NOT NULL,
 	`school_id` text NOT NULL,
 	`class_id` text NOT NULL,
@@ -10,7 +10,7 @@ CREATE TABLE `fee_structures` (
 	FOREIGN KEY (`class_id`) REFERENCES `classes`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `school_settings` (
+CREATE TABLE IF NOT EXISTS `school_settings` (
 	`school_id` text PRIMARY KEY NOT NULL,
 	`language` text DEFAULT 'en' NOT NULL,
 	`xp_level_up` integer DEFAULT 150 NOT NULL,

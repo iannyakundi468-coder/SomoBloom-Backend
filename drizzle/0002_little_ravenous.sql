@@ -1,4 +1,4 @@
-CREATE TABLE `teacher_remarks` (
+CREATE TABLE IF NOT EXISTS `teacher_remarks` (
 	`id` text PRIMARY KEY NOT NULL,
 	`student_profile_id` text NOT NULL,
 	`teacher_profile_id` text NOT NULL,
@@ -9,7 +9,7 @@ CREATE TABLE `teacher_remarks` (
 	FOREIGN KEY (`teacher_profile_id`) REFERENCES `teacher_profiles`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE TABLE `timetables` (
+CREATE TABLE IF NOT EXISTS `timetables` (
 	`id` text PRIMARY KEY NOT NULL,
 	`school_id` text NOT NULL,
 	`term` text NOT NULL,
