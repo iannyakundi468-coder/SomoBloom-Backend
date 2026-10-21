@@ -412,9 +412,15 @@ adminRouter.get('/users', async (c) => {
     const encryptionSecret = getEncryptionSecret(c.env);
 
     const decryptUserEmail = async (u: any) => {
-      const email = await decryptData(u.encryptedEmail, encryptionSecret);
-      const { encryptedEmail, ...rest } = u;
-      return { ...rest, email };
+      try {
+        const email = u.encryptedEmail ? await decryptData(u.encryptedEmail, encryptionSecret) : (u.email || '');
+        const { encryptedEmail, ...rest } = u;
+        return { ...rest, email };
+      } catch (err) {
+        console.warn(`[admin] Failed to decrypt email for user ${u.id}:`, err);
+        const { encryptedEmail, ...rest } = u;
+        return { ...rest, email: u.email || '[encrypted email]' };
+      }
     };
 
     const combinedUsers = await Promise.all([
@@ -458,7 +464,9 @@ adminRouter.get('/classes', async (c) => {
         name: cls.name,
         teacherId: cls.teacherProfileId,
         teacher: cls.teacherName || 'Unassigned',
-        students: classEnrollments
+        students: classEnrollments,
+        status: 'active',
+        capacity: 30
       };
     });
 
