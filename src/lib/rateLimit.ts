@@ -48,3 +48,7 @@ export function rateLimiter(options: RateLimitOptions) {
     return await next();
   };
 }
+
+export function clearRateLimits() {
+  memoryStore.clear();
+}

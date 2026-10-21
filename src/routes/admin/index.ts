@@ -5,7 +5,8 @@ import { users, schools, adminProfiles, teacherProfiles, studentProfiles, parent
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { getJwtSecret, getEncryptionSecret } from '../../lib/config';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, or } from 'drizzle-orm';
+import { normalizePhoneNumber } from '../../lib/phone';
 import type { Bindings } from '../../index';
 
 import { admissionsRouter } from './admissions';
@@ -87,21 +88,36 @@ adminRouter.get('/me', async (c) => {
 adminRouter.post('/teachers', async (c) => {
   const payload = c.get('jwtPayload');
   const body = await c.req.json();
-  const { name, email, password, department } = body;
+  const { name, email, password, department, phoneNumber, phone } = body;
+  const rawPhone = phoneNumber || phone;
+  const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) || rawPhone.trim() : null;
 
-  if (!name || !email || !password) {
-    return c.json({ error: 'Name, email, and password are required' }, 400);
+  if (!name || (!email && !normalizedPhone) || !password) {
+    return c.json({ error: 'Name, password, and phone number (or email) are required' }, 400);
   }
 
   const db = getDb(c.env.DB);
   const encryptionSecret = getEncryptionSecret(c.env);
-  const emailHash = await hashIdentifier(email, encryptionSecret);
-  const encryptedEmail = await encryptData(email, encryptionSecret);
 
-  // Check if email already exists
-  const existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
+  const effectiveEmail = email && typeof email === 'string' && email.includes('@')
+    ? email.trim()
+    : `${(normalizedPhone || Date.now()).toString().replace(/[^0-9]/g, '')}@teacher.somobloom.com`;
+
+  const emailHash = await hashIdentifier(effectiveEmail, encryptionSecret);
+  const encryptedEmail = await encryptData(effectiveEmail, encryptionSecret);
+  const phoneNumberHash = normalizedPhone ? await hashIdentifier(normalizedPhone, encryptionSecret) : null;
+  const encryptedPhoneNumber = normalizedPhone ? await encryptData(normalizedPhone, encryptionSecret) : null;
+
+  // Check if user already exists
+  let existingUser;
+  if (phoneNumberHash) {
+    existingUser = await db.select().from(users).where(or(eq(users.emailHash, emailHash), eq(users.phoneNumberHash, phoneNumberHash))).get();
+  } else {
+    existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
+  }
+
   if (existingUser) {
-    return c.json({ error: 'User with this email already exists' }, 400);
+    return c.json({ error: 'User with this phone number or email already exists' }, 400);
   }
 
   const userId = crypto.randomUUID();
@@ -114,6 +130,8 @@ adminRouter.post('/teachers', async (c) => {
         id: userId,
         emailHash,
         encryptedEmail,
+        phoneNumberHash,
+        encryptedPhoneNumber,
         passwordHash: hashedPassword,
       }),
       db.insert(teacherProfiles).values({
@@ -132,7 +150,8 @@ adminRouter.post('/teachers', async (c) => {
         userId,
         name,
         department,
-        email
+        email: email || '',
+        phoneNumber: normalizedPhone || rawPhone || ''
       }
     }, 201);
   } catch (error: any) {
@@ -144,20 +163,35 @@ adminRouter.post('/teachers', async (c) => {
 adminRouter.post('/students', async (c) => {
   const payload = c.get('jwtPayload');
   const body = await c.req.json();
-  const { name, email, password, studentIdNumber } = body;
+  const { name, email, password, studentIdNumber, phoneNumber, phone } = body;
+  const rawPhone = phoneNumber || phone;
+  const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) || rawPhone.trim() : null;
 
-  if (!name || !email || !password) {
-    return c.json({ error: 'Name, email, and password are required' }, 400);
+  if (!name || (!email && !normalizedPhone && !studentIdNumber) || !password) {
+    return c.json({ error: 'Name, password, and phone number (or email/student ID) are required' }, 400);
   }
 
   const db = getDb(c.env.DB);
   const encryptionSecret = getEncryptionSecret(c.env);
-  const emailHash = await hashIdentifier(email, encryptionSecret);
-  const encryptedEmail = await encryptData(email, encryptionSecret);
 
-  const existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
+  const effectiveEmail = email && typeof email === 'string' && email.includes('@')
+    ? email.trim()
+    : `${(studentIdNumber || normalizedPhone || Date.now()).toString().replace(/[^0-9a-zA-Z]/g, '')}@student.somobloom.com`;
+
+  const emailHash = await hashIdentifier(effectiveEmail, encryptionSecret);
+  const encryptedEmail = await encryptData(effectiveEmail, encryptionSecret);
+  const phoneNumberHash = normalizedPhone ? await hashIdentifier(normalizedPhone, encryptionSecret) : null;
+  const encryptedPhoneNumber = normalizedPhone ? await encryptData(normalizedPhone, encryptionSecret) : null;
+
+  let existingUser;
+  if (phoneNumberHash) {
+    existingUser = await db.select().from(users).where(or(eq(users.emailHash, emailHash), eq(users.phoneNumberHash, phoneNumberHash))).get();
+  } else {
+    existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
+  }
+
   if (existingUser) {
-    return c.json({ error: 'User with this email already exists' }, 400);
+    return c.json({ error: 'User with this phone number or email already exists' }, 400);
   }
 
   const userId = crypto.randomUUID();
@@ -166,7 +200,14 @@ adminRouter.post('/students', async (c) => {
 
   try {
     await db.batch([
-      db.insert(users).values({ id: userId, emailHash, encryptedEmail, passwordHash: hashedPassword }),
+      db.insert(users).values({
+        id: userId,
+        emailHash,
+        encryptedEmail,
+        phoneNumberHash,
+        encryptedPhoneNumber,
+        passwordHash: hashedPassword
+      }),
       db.insert(studentProfiles).values({
         id: studentProfileId,
         userId,
@@ -175,7 +216,17 @@ adminRouter.post('/students', async (c) => {
         studentIdNumber
       })
     ]);
-    return c.json({ message: 'Student created successfully', student: { id: studentProfileId, userId, name, email } }, 201);
+    return c.json({
+      message: 'Student created successfully',
+      student: {
+        id: studentProfileId,
+        userId,
+        name,
+        email: email || '',
+        phoneNumber: normalizedPhone || rawPhone || '',
+        studentIdNumber
+      }
+    }, 201);
   } catch (error: any) {
     return c.json({ error: 'Failed to create student' }, 500);
   }
@@ -184,20 +235,35 @@ adminRouter.post('/students', async (c) => {
 adminRouter.post('/parents', async (c) => {
   const payload = c.get('jwtPayload');
   const body = await c.req.json();
-  const { name, email, password, phoneNumber } = body;
+  const { name, email, password, phoneNumber, phone } = body;
+  const rawPhone = phoneNumber || phone;
+  const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) || rawPhone.trim() : null;
 
-  if (!name || !email || !password) {
-    return c.json({ error: 'Name, email, and password are required' }, 400);
+  if (!name || (!email && !normalizedPhone) || !password) {
+    return c.json({ error: 'Name, password, and phone number (or email) are required' }, 400);
   }
 
   const db = getDb(c.env.DB);
   const encryptionSecret = getEncryptionSecret(c.env);
-  const emailHash = await hashIdentifier(email, encryptionSecret);
-  const encryptedEmail = await encryptData(email, encryptionSecret);
 
-  const existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
+  const effectiveEmail = email && typeof email === 'string' && email.includes('@')
+    ? email.trim()
+    : `${(normalizedPhone || Date.now()).toString().replace(/[^0-9]/g, '')}@parent.somobloom.com`;
+
+  const emailHash = await hashIdentifier(effectiveEmail, encryptionSecret);
+  const encryptedEmail = await encryptData(effectiveEmail, encryptionSecret);
+  const phoneNumberHash = normalizedPhone ? await hashIdentifier(normalizedPhone, encryptionSecret) : null;
+  const encryptedPhoneNumber = normalizedPhone ? await encryptData(normalizedPhone, encryptionSecret) : null;
+
+  let existingUser;
+  if (phoneNumberHash) {
+    existingUser = await db.select().from(users).where(or(eq(users.emailHash, emailHash), eq(users.phoneNumberHash, phoneNumberHash))).get();
+  } else {
+    existingUser = await db.select().from(users).where(eq(users.emailHash, emailHash)).get();
+  }
+
   if (existingUser) {
-    return c.json({ error: 'User with this email already exists' }, 400);
+    return c.json({ error: 'User with this phone number or email already exists' }, 400);
   }
 
   const userId = crypto.randomUUID();
@@ -206,16 +272,32 @@ adminRouter.post('/parents', async (c) => {
 
   try {
     await db.batch([
-      db.insert(users).values({ id: userId, emailHash, encryptedEmail, passwordHash: hashedPassword }),
+      db.insert(users).values({
+        id: userId,
+        emailHash,
+        encryptedEmail,
+        phoneNumberHash,
+        encryptedPhoneNumber,
+        passwordHash: hashedPassword
+      }),
       db.insert(parentProfiles).values({
         id: parentProfileId,
         userId,
         schoolId: payload.schoolId,
         name,
-        phoneNumber
+        phoneNumber: normalizedPhone || rawPhone
       })
     ]);
-    return c.json({ message: 'Parent created successfully', parent: { id: parentProfileId, userId, name, email } }, 201);
+    return c.json({
+      message: 'Parent created successfully',
+      parent: {
+        id: parentProfileId,
+        userId,
+        name,
+        email: email || '',
+        phoneNumber: normalizedPhone || rawPhone || ''
+      }
+    }, 201);
   } catch (error: any) {
     return c.json({ error: 'Failed to create parent' }, 500);
   }
@@ -355,6 +437,7 @@ adminRouter.get('/users', async (c) => {
       userId: adminProfiles.userId,
       name: adminProfiles.name,
       encryptedEmail: users.encryptedEmail,
+      encryptedPhoneNumber: users.encryptedPhoneNumber,
       createdAt: adminProfiles.createdAt,
     })
     .from(adminProfiles)
@@ -367,6 +450,7 @@ adminRouter.get('/users', async (c) => {
       userId: teacherProfiles.userId,
       name: teacherProfiles.name,
       encryptedEmail: users.encryptedEmail,
+      encryptedPhoneNumber: users.encryptedPhoneNumber,
       createdAt: teacherProfiles.createdAt,
       department: teacherProfiles.department,
     })
@@ -380,6 +464,7 @@ adminRouter.get('/users', async (c) => {
       userId: studentProfiles.userId,
       name: studentProfiles.name,
       encryptedEmail: users.encryptedEmail,
+      encryptedPhoneNumber: users.encryptedPhoneNumber,
       createdAt: studentProfiles.createdAt,
       studentIdNumber: studentProfiles.studentIdNumber,
     })
@@ -393,6 +478,7 @@ adminRouter.get('/users', async (c) => {
       userId: parentProfiles.userId,
       name: parentProfiles.name,
       encryptedEmail: users.encryptedEmail,
+      encryptedPhoneNumber: users.encryptedPhoneNumber,
       createdAt: parentProfiles.createdAt,
       phoneNumber: parentProfiles.phoneNumber,
     })
@@ -408,19 +494,38 @@ adminRouter.get('/users', async (c) => {
       return { ...p, children: childrenIds };
     });
 
-    
     const encryptionSecret = getEncryptionSecret(c.env);
 
-    const decryptUserEmail = async (u: any) => {
+    const decryptUserDetails = async (u: any) => {
+      let email = '';
+      let phoneNumber = u.phoneNumber || '';
+
       try {
-        const email = u.encryptedEmail ? await decryptData(u.encryptedEmail, encryptionSecret) : (u.email || '');
-        const { encryptedEmail, ...rest } = u;
-        return { ...rest, email };
+        if (u.encryptedEmail) {
+          const dec = await decryptData(u.encryptedEmail, encryptionSecret);
+          if (!dec.endsWith('.somobloom.com') && !dec.endsWith('.somobloom.local')) {
+            email = dec;
+          }
+        }
       } catch (err) {
         console.warn(`[admin] Failed to decrypt email for user ${u.id}:`, err);
-        const { encryptedEmail, ...rest } = u;
-        return { ...rest, email: u.email || '[encrypted email]' };
       }
+
+      try {
+        if (!phoneNumber && u.encryptedPhoneNumber) {
+          phoneNumber = await decryptData(u.encryptedPhoneNumber, encryptionSecret);
+        }
+      } catch (err) {
+        console.warn(`[admin] Failed to decrypt phone for user ${u.id}:`, err);
+      }
+
+      const { encryptedEmail, encryptedPhoneNumber, ...rest } = u;
+      return {
+        ...rest,
+        email,
+        phoneNumber,
+        primaryContact: phoneNumber || email || ''
+      };
     };
 
     const combinedUsers = await Promise.all([
@@ -428,7 +533,7 @@ adminRouter.get('/users', async (c) => {
       ...teachers.map(t => ({ ...t, role: 'teacher', status: 'active' })),
       ...students.map(s => ({ ...s, role: 'student', status: 'active' })),
       ...parentsWithChildren.map(p => ({ ...p, role: 'parent', status: 'active' }))
-    ].map(decryptUserEmail));
+    ].map(decryptUserDetails));
 
     return c.json({ users: combinedUsers });
   } catch (error: any) {

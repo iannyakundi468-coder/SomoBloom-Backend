@@ -7,6 +7,7 @@ import { encryptData, decryptData, hashIdentifier } from '../lib/encryption';
 import { getJwtSecret, getEncryptionSecret } from '../lib/config';
 import { rateLimiter } from '../lib/rateLimit';
 import { eq, or } from 'drizzle-orm';
+import { normalizePhoneNumber } from '../lib/phone';
 import type { Bindings } from '../index';
 
 export const authRouter = new Hono<{ Bindings: Bindings }>();
@@ -21,13 +22,15 @@ authRouter.post('/register-school', registerLimiter, async (c) => {
     return c.json({ error: 'Invalid JSON request body' }, 400);
   }
 
-  const { schoolName, adminName, email, phoneNumber, password } = body;
+  const { schoolName, adminName, email, phoneNumber, phone, password } = body;
+  const rawPhone = phoneNumber || phone;
+  const normalizedPhone = rawPhone ? normalizePhoneNumber(rawPhone) || rawPhone.trim() : null;
 
-  if (!schoolName || !adminName || !email || !password) {
-    return c.json({ error: 'Missing required fields' }, 400);
+  if (!schoolName || !adminName || (!email && !normalizedPhone) || !password) {
+    return c.json({ error: 'Missing required fields: school name, admin name, password, and phone number (or email) are required' }, 400);
   }
 
-  if (typeof email !== 'string' || !email.includes('@')) {
+  if (email && (typeof email !== 'string' || !email.includes('@'))) {
     return c.json({ error: 'Invalid email address' }, 400);
   }
 
@@ -38,8 +41,13 @@ authRouter.post('/register-school', registerLimiter, async (c) => {
   const db = getDb(c.env.DB);
   const encryptionSecret = getEncryptionSecret(c.env);
   
-  const emailHash = await hashIdentifier(email, encryptionSecret);
-  const phoneNumberHash = phoneNumber ? await hashIdentifier(phoneNumber, encryptionSecret) : null;
+  // Use surrogate email if email is not provided to satisfy existing D1 NOT NULL constraint
+  const effectiveEmail = email && typeof email === 'string' && email.includes('@')
+    ? email.trim()
+    : `${normalizedPhone!.replace(/[^0-9]/g, '')}@phone.somobloom.com`;
+
+  const emailHash = await hashIdentifier(effectiveEmail, encryptionSecret);
+  const phoneNumberHash = normalizedPhone ? await hashIdentifier(normalizedPhone, encryptionSecret) : null;
 
   // 1. Check if user already exists
   let existingUser;
@@ -50,7 +58,7 @@ authRouter.post('/register-school', registerLimiter, async (c) => {
   }
   
   if (existingUser) {
-    return c.json({ error: 'User with this email or phone number already exists' }, 400);
+    return c.json({ error: 'User with this phone number or email already exists' }, 400);
   }
 
   const schoolId = crypto.randomUUID();
@@ -59,8 +67,8 @@ authRouter.post('/register-school', registerLimiter, async (c) => {
   
   const hashedPassword = await hashPassword(password);
   
-  const encryptedEmail = await encryptData(email, encryptionSecret);
-  const encryptedPhoneNumber = phoneNumber ? await encryptData(phoneNumber, encryptionSecret) : null;
+  const encryptedEmail = await encryptData(effectiveEmail, encryptionSecret);
+  const encryptedPhoneNumber = normalizedPhone ? await encryptData(normalizedPhone, encryptionSecret) : null;
 
   try {
     await db.batch([
@@ -98,7 +106,8 @@ authRouter.post('/register-school', registerLimiter, async (c) => {
       token,
       user: {
         id: userId,
-        email,
+        phoneNumber: normalizedPhone || '',
+        email: email || '',
         name: adminName,
         role: 'admin',
         schoolId
@@ -117,23 +126,43 @@ authRouter.post('/login', loginLimiter, async (c) => {
     return c.json({ error: 'Invalid JSON request body' }, 400);
   }
 
-  const { email: identifier, password } = body;
+  // Accept phoneNumber, phone, identifier, or email
+  const rawIdentifier = (body.phoneNumber || body.phone || body.identifier || body.email || '').toString().trim();
+  const password = body.password;
 
-  if (!identifier || !password) {
-    return c.json({ error: 'Email/Phone and password are required' }, 400);
+  if (!rawIdentifier || !password) {
+    return c.json({ error: 'Phone number (or email) and password are required' }, 400);
   }
 
   const db = getDb(c.env.DB);
   const encryptionSecret = getEncryptionSecret(c.env);
-  const identifierHash = await hashIdentifier(identifier, encryptionSecret);
 
-  // 1. Find user
-  const user = await db.select().from(users).where(
-    or(
-      eq(users.emailHash, identifierHash),
-      eq(users.phoneNumberHash, identifierHash)
-    )
-  ).get();
+  // Check if identifier is a Kenyan or international phone number
+  const normalizedPhone = normalizePhoneNumber(rawIdentifier);
+
+  let user;
+  if (normalizedPhone) {
+    // Phone login: check normalized E.164, raw input, and email hash
+    const phoneHash = await hashIdentifier(normalizedPhone, encryptionSecret);
+    const rawHash = await hashIdentifier(rawIdentifier, encryptionSecret);
+
+    user = await db.select().from(users).where(
+      or(
+        eq(users.phoneNumberHash, phoneHash),
+        eq(users.phoneNumberHash, rawHash),
+        eq(users.emailHash, rawHash)
+      )
+    ).get();
+  } else {
+    // Email / username login: check email hash and phone hash
+    const identifierHash = await hashIdentifier(rawIdentifier, encryptionSecret);
+    user = await db.select().from(users).where(
+      or(
+        eq(users.emailHash, identifierHash),
+        eq(users.phoneNumberHash, identifierHash)
+      )
+    ).get();
+  }
 
   if (!user) {
     return c.json({ error: 'Invalid credentials' }, 401);
@@ -190,14 +219,39 @@ authRouter.post('/login', loginLimiter, async (c) => {
   };
 
   const token = await sign(payload, getJwtSecret(c.env), 'HS256');
-  const decryptedEmail = await decryptData(user.encryptedEmail, encryptionSecret);
+
+  let decryptedEmail: string | null = null;
+  let decryptedPhone: string | null = null;
+
+  try {
+    if (user.encryptedEmail) {
+      decryptedEmail = await decryptData(user.encryptedEmail, encryptionSecret);
+    }
+  } catch (e) {
+    console.warn(`[auth] Could not decrypt email for user ${user.id}`);
+  }
+
+  try {
+    if (user.encryptedPhoneNumber) {
+      decryptedPhone = await decryptData(user.encryptedPhoneNumber, encryptionSecret);
+    }
+  } catch (e) {
+    console.warn(`[auth] Could not decrypt phone for user ${user.id}`);
+  }
+
+  // Filter out internal surrogate emails like @phone.somobloom.com
+  const displayEmail = decryptedEmail && !decryptedEmail.endsWith('.somobloom.com') && !decryptedEmail.endsWith('.somobloom.local')
+    ? decryptedEmail
+    : '';
 
   return c.json({
     message: 'Login successful',
     token,
     user: {
       id: user.id,
-      email: decryptedEmail,
+      phoneNumber: decryptedPhone || '',
+      email: displayEmail,
+      primaryContact: decryptedPhone || displayEmail || '',
       name: userProfileName,
       role: userRole,
       schoolId: userSchoolId

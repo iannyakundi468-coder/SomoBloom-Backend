@@ -5,6 +5,7 @@ import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, hashIdentifier } from '../../lib/encryption';
 import { getEncryptionSecret } from '../../lib/config';
 import { eq, and } from 'drizzle-orm';
+import { normalizePhoneNumber } from '../../lib/phone';
 import type { Bindings } from '../../index';
 
 export const admissionsRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
@@ -85,9 +86,15 @@ admissionsRouter.post('/:id/approve', async (c) => {
     // 2. If Guardian contact provided, provision Parent User & Profile
     let parentProfileId: string | null = null;
     if (submission.guardianName && (submission.email || submission.phoneNumber)) {
-      const parentEmail = submission.email ? `parent.${submission.email}` : `parent.${Date.now()}@somobloom.local`;
+      const normalizedPhone = submission.phoneNumber ? normalizePhoneNumber(submission.phoneNumber) || submission.phoneNumber.trim() : null;
+      const parentEmail = submission.email
+        ? `parent.${submission.email}`
+        : `${(normalizedPhone || Date.now()).toString().replace(/[^0-9]/g, '')}@parent.somobloom.com`;
+
       const parentEmailHash = await hashIdentifier(parentEmail, encryptionSecret);
       const encParentEmail = await encryptData(parentEmail, encryptionSecret);
+      const parentPhoneHash = normalizedPhone ? await hashIdentifier(normalizedPhone, encryptionSecret) : null;
+      const encParentPhone = normalizedPhone ? await encryptData(normalizedPhone, encryptionSecret) : null;
       const hashedParentPass = await hashPassword('DefaultParent123!');
 
       const parentUserId = crypto.randomUUID();
@@ -98,6 +105,8 @@ admissionsRouter.post('/:id/approve', async (c) => {
           id: parentUserId,
           emailHash: parentEmailHash,
           encryptedEmail: encParentEmail,
+          phoneNumberHash: parentPhoneHash,
+          encryptedPhoneNumber: encParentPhone,
           passwordHash: hashedParentPass,
         }),
         db.insert(parentProfiles).values({
@@ -105,7 +114,7 @@ admissionsRouter.post('/:id/approve', async (c) => {
           userId: parentUserId,
           schoolId: payload.schoolId,
           name: submission.guardianName,
-          phoneNumber: submission.phoneNumber,
+          phoneNumber: normalizedPhone || submission.phoneNumber,
         }),
         db.insert(parentStudentRelations).values({
           parentProfileId,
