@@ -28,6 +28,50 @@ admissionsRouter.get('/', async (c) => {
   }
 });
 
+// POST /api/admin/admissions - Record a walk-in / manual enrollment application
+admissionsRouter.post('/', async (c) => {
+  const payload = c.get('jwtPayload');
+  const body = await c.req.json();
+  const { firstName, lastName, gender, gradeApplyingFor, guardianName, relationship, phoneNumber, email, emergencyNumber, admissionNumber } = body;
+
+  if (!firstName || !lastName || !guardianName || (!phoneNumber && !email)) {
+    return c.json({ error: 'First name, last name, guardian name, and phone/email are required' }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  try {
+    const res = await db.insert(studentEnrollmentSubmissions).values({
+      schoolId: payload.schoolId,
+      firstName,
+      lastName,
+      gender: gender || 'Not specified',
+      gradeApplyingFor: gradeApplyingFor || 'General',
+      guardianName,
+      relationship: relationship || 'Parent',
+      phoneNumber: phoneNumber || '',
+      email: email || '',
+      emergencyNumber: emergencyNumber || phoneNumber || '',
+      admissionNumber: admissionNumber || `ADM-${Date.now().toString().slice(-4)}`,
+      status: 'pending',
+      timestamp: new Date().toISOString()
+    }).returning();
+
+    const created = res[0] || { id: Date.now() };
+
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      user: 'Admin',
+      action: `Created walk-in admission application for ${firstName} ${lastName} (${gradeApplyingFor || 'General'})`,
+      category: 'Admissions'
+    });
+
+    return c.json({ message: 'Admission application recorded successfully', submission: created }, 201);
+  } catch (err: any) {
+    console.error('Failed to create admission submission:', err);
+    return c.json({ error: 'Failed to record admission submission' }, 500);
+  }
+});
+
 // POST /api/admin/admissions/:id/approve - Approve application and auto-provision Student/Parent profiles
 admissionsRouter.post('/:id/approve', async (c) => {
   const { id } = c.req.param();
