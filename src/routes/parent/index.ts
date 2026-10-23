@@ -5,6 +5,7 @@ import { parentProfiles, studentProfiles, parentStudentRelations, grades, assign
 import type { JwtPayload } from '../../lib/auth';
 import { getJwtSecret } from '../../lib/config';
 import { eq, and, or, desc } from 'drizzle-orm';
+import { recordAuditLog } from '../../lib/audit';
 import type { Bindings } from '../../index';
 
 export const parentRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
@@ -332,6 +333,13 @@ parentRouter.post('/payments', async (c) => {
       action: 'Fee Payment',
       detail: `Received KES ${parsedAmount.toLocaleString()} via ${isMpesa ? 'M-PESA' : method} (Ref: ${ref})`,
       color: 'emerald',
+    });
+
+    await recordAuditLog(db, {
+      schoolId: profile.schoolId,
+      user: profile.name,
+      action: `Received fee payment: KES ${parsedAmount.toLocaleString()} via ${isMpesa ? 'M-PESA' : method} (Ref: ${ref})`,
+      category: 'Finance'
     });
 
     return c.json({ 

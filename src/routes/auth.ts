@@ -8,6 +8,7 @@ import { getJwtSecret, getEncryptionSecret } from '../lib/config';
 import { rateLimiter } from '../lib/rateLimit';
 import { eq, or } from 'drizzle-orm';
 import { normalizePhoneNumber } from '../lib/phone';
+import { recordAuditLog } from '../lib/audit';
 import type { Bindings } from '../index';
 
 export const authRouter = new Hono<{ Bindings: Bindings }>();
@@ -100,6 +101,14 @@ authRouter.post('/register-school', registerLimiter, async (c) => {
     };
 
     const token = await sign(payload, getJwtSecret(c.env), 'HS256');
+
+    await recordAuditLog(db, {
+      schoolId,
+      user: adminName,
+      userId,
+      action: `School "${schoolName}" registered with initial administrative account`,
+      category: 'Security'
+    });
 
     return c.json({
       message: 'School registered successfully',
@@ -243,6 +252,16 @@ authRouter.post('/login', loginLimiter, async (c) => {
   const displayEmail = decryptedEmail && !decryptedEmail.endsWith('.somobloom.com') && !decryptedEmail.endsWith('.somobloom.local')
     ? decryptedEmail
     : '';
+
+  if (userRole === 'admin') {
+    await recordAuditLog(db, {
+      schoolId: userSchoolId,
+      user: userProfileName || 'Administrator',
+      userId: user.id,
+      action: 'Administrator logged into the portal',
+      category: 'Security'
+    });
+  }
 
   return c.json({
     message: 'Login successful',

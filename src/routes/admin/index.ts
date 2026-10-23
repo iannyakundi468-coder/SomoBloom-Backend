@@ -5,8 +5,9 @@ import { users, schools, adminProfiles, teacherProfiles, studentProfiles, parent
 import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { getJwtSecret, getEncryptionSecret } from '../../lib/config';
-import { eq, and, desc, or } from 'drizzle-orm';
+import { eq, and, desc, or, like } from 'drizzle-orm';
 import { normalizePhoneNumber } from '../../lib/phone';
+import { recordAuditLog, getAdminName } from '../../lib/audit';
 import type { Bindings } from '../../index';
 
 import { admissionsRouter } from './admissions';
@@ -143,6 +144,13 @@ adminRouter.post('/teachers', async (c) => {
       })
     ]);
 
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Created teacher profile "${name}" (${department || 'General'})`,
+      category: 'Users'
+    });
+
     return c.json({
       message: 'Teacher created successfully',
       teacher: {
@@ -216,6 +224,13 @@ adminRouter.post('/students', async (c) => {
         studentIdNumber
       })
     ]);
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Enrolled student "${name}" (Adm: ${studentIdNumber || 'Auto'})`,
+      category: 'Users'
+    });
+
     return c.json({
       message: 'Student created successfully',
       student: {
@@ -288,6 +303,13 @@ adminRouter.post('/parents', async (c) => {
         phoneNumber: normalizedPhone || rawPhone
       })
     ]);
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Created parent account for "${name}"`,
+      category: 'Users'
+    });
+
     return c.json({
       message: 'Parent created successfully',
       parent: {
@@ -322,6 +344,12 @@ adminRouter.post('/classes', async (c) => {
       teacherProfileId,
       name
     });
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Created class "${name}"`,
+      category: 'Classes'
+    });
     return c.json({ message: 'Class created successfully', class: { id: classId, name, teacherProfileId } }, 201);
   } catch (error: any) {
     return c.json({ error: 'Failed to create class' }, 500);
@@ -330,12 +358,19 @@ adminRouter.post('/classes', async (c) => {
 
 adminRouter.post('/parents/:parentId/students/:studentId', async (c) => {
   const { parentId, studentId } = c.req.param();
+  const payload = c.get('jwtPayload');
   const db = getDb(c.env.DB);
 
   try {
     await db.insert(parentStudentRelations).values({
       parentProfileId: parentId,
       studentProfileId: studentId
+    });
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Linked student ID ${studentId} to parent ID ${parentId}`,
+      category: 'Users'
     });
     return c.json({ message: 'Student linked to parent successfully' }, 201);
   } catch (error: any) {
@@ -345,6 +380,7 @@ adminRouter.post('/parents/:parentId/students/:studentId', async (c) => {
 
 adminRouter.post('/classes/:classId/enrollments', async (c) => {
   const { classId } = c.req.param();
+  const payload = c.get('jwtPayload');
   const body = await c.req.json();
   const { studentProfileId } = body;
 
@@ -359,6 +395,12 @@ adminRouter.post('/classes/:classId/enrollments', async (c) => {
       classId,
       studentProfileId
     });
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Enrolled student ID ${studentProfileId} into class ID ${classId}`,
+      category: 'Classes'
+    });
     return c.json({ message: 'Student enrolled in class successfully' }, 201);
   } catch (error: any) {
     return c.json({ error: 'Failed to enroll student' }, 500);
@@ -367,6 +409,7 @@ adminRouter.post('/classes/:classId/enrollments', async (c) => {
 
 adminRouter.delete('/classes/:classId/enrollments/:studentId', async (c) => {
   const { classId, studentId } = c.req.param();
+  const payload = c.get('jwtPayload');
   const db = getDb(c.env.DB);
   
   try {
@@ -374,6 +417,12 @@ adminRouter.delete('/classes/:classId/enrollments/:studentId', async (c) => {
       eq(enrollments.classId, classId),
       eq(enrollments.studentProfileId, studentId)
     ));
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Unenrolled student ID ${studentId} from class ID ${classId}`,
+      category: 'Classes'
+    });
     return c.json({ message: 'Student unenrolled from class successfully' });
   } catch (error: any) {
     return c.json({ error: 'Failed to unenroll student' }, 500);
@@ -671,6 +720,13 @@ adminRouter.put('/users/:id', async (c) => {
 
     await Promise.all(updates);
 
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Updated user profile "${name || id}"`,
+      category: 'Users'
+    });
+
     return c.json({ message: 'User updated successfully' });
   } catch (error: any) {
     console.error('Failed to update user:', error);
@@ -723,6 +779,13 @@ adminRouter.delete('/users/:id', async (c) => {
       db.delete(users).where(eq(users.id, userId))
     ]);
 
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Deleted user profile ID: ${id}`,
+      category: 'Users'
+    });
+
     return c.json({ message: 'User deleted successfully' });
   } catch (error: any) {
     console.error('Failed to delete user:', error);
@@ -749,6 +812,13 @@ adminRouter.put('/classes/:id', async (c) => {
       teacherProfileId: teacherId || classItem.teacherProfileId
     }).where(eq(classes.id, id));
 
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Updated class "${name || classItem.name}"`,
+      category: 'Classes'
+    });
+
     return c.json({ message: 'Class updated successfully' });
   } catch (error: any) {
     console.error('Failed to update class:', error);
@@ -769,6 +839,13 @@ adminRouter.delete('/classes/:id', async (c) => {
       db.delete(enrollments).where(eq(enrollments.classId, id)),
       db.delete(classes).where(eq(classes.id, id))
     ]);
+
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Deleted class "${cls.name}" (ID: ${id})`,
+      category: 'Classes'
+    });
 
     return c.json({ message: 'Class deleted successfully' });
   } catch (error: any) {
@@ -802,6 +879,12 @@ adminRouter.post('/subjects', async (c) => {
   try {
     await db.insert(subjects).values({ id, schoolId: payload.schoolId, name, code });
     const newSubject = await db.select().from(subjects).where(eq(subjects.id, id)).get();
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Created curriculum subject "${name}" (${code || 'CBC'})`,
+      category: 'Academics'
+    });
     return c.json({ message: 'Subject created', subject: newSubject }, 201);
   } catch (error: any) {
     return c.json({ error: 'Failed to create subject' }, 500);
@@ -825,6 +908,13 @@ adminRouter.put('/subjects/:id', async (c) => {
       code: code !== undefined ? code : existing.code
     }).where(eq(subjects.id, id));
 
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Updated curriculum subject "${name || existing.name}"`,
+      category: 'Academics'
+    });
+
     return c.json({ message: 'Subject updated successfully' });
   } catch (error: any) {
     return c.json({ error: 'Failed to update subject' }, 500);
@@ -845,6 +935,13 @@ adminRouter.delete('/subjects/:id', async (c) => {
       db.delete(subjects).where(eq(subjects.id, id))
     ]);
 
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Deleted curriculum subject "${existing.name}" (ID: ${id})`,
+      category: 'Academics'
+    });
+
     return c.json({ message: 'Subject deleted successfully' });
   } catch (error: any) {
     return c.json({ error: 'Failed to delete subject' }, 500);
@@ -855,6 +952,7 @@ adminRouter.delete('/subjects/:id', async (c) => {
 // POST /api/admin/classes/:classId/subjects
 adminRouter.post('/classes/:classId/subjects', async (c) => {
   const { classId } = c.req.param();
+  const payload = c.get('jwtPayload');
   const body = await c.req.json();
   const { subjectId, teacherProfileId } = body;
 
@@ -863,6 +961,12 @@ adminRouter.post('/classes/:classId/subjects', async (c) => {
   const db = getDb(c.env.DB);
   try {
     await db.insert(classSubjects).values({ classId, subjectId, teacherProfileId });
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Assigned subject ID ${subjectId} to class ID ${classId}`,
+      category: 'Academics'
+    });
     return c.json({ message: 'Subject assigned to class successfully' }, 201);
   } catch (error: any) {
     return c.json({ error: 'Failed to assign subject to class' }, 500);
@@ -872,9 +976,16 @@ adminRouter.post('/classes/:classId/subjects', async (c) => {
 // DELETE /api/admin/classes/:classId/subjects/:subjectId
 adminRouter.delete('/classes/:classId/subjects/:subjectId', async (c) => {
   const { classId, subjectId } = c.req.param();
+  const payload = c.get('jwtPayload');
   const db = getDb(c.env.DB);
   try {
     await db.delete(classSubjects).where(and(eq(classSubjects.classId, classId), eq(classSubjects.subjectId, subjectId)));
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Removed subject ID ${subjectId} from class ID ${classId}`,
+      category: 'Academics'
+    });
     return c.json({ message: 'Subject removed from class successfully' });
   } catch (error: any) {
     return c.json({ error: 'Failed to remove subject from class' }, 500);
@@ -899,6 +1010,14 @@ adminRouter.put('/me', async (c) => {
       name: name || profile.name,
       avatarUrl: avatarUrl !== undefined ? avatarUrl : profile.avatarUrl
     }).where(eq(adminProfiles.userId, payload.sub));
+
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      user: name || profile.name,
+      action: `Updated administrator profile details`,
+      category: 'Security'
+    });
 
     return c.json({ message: 'Profile updated successfully' });
   } catch (error: any) {
@@ -936,21 +1055,81 @@ adminRouter.get('/audit', async (c) => {
   const payload = c.get('jwtPayload');
   const db = getDb(c.env.DB);
   try {
-    const logs = await db.select().from(auditLogs).where(eq(auditLogs.schoolId, payload.schoolId)).orderBy(desc(auditLogs.createdAt)).limit(100).all();
+    const categoryQuery = c.req.query('category');
+    const searchQuery = c.req.query('search') || c.req.query('q');
+    const limitQuery = parseInt(c.req.query('limit') || '150', 10);
+    const limit = Math.min(Math.max(isNaN(limitQuery) ? 150 : limitQuery, 1), 500);
+
+    const conditions = [eq(auditLogs.schoolId, payload.schoolId)];
+    if (categoryQuery && categoryQuery !== 'All') {
+      conditions.push(eq(auditLogs.category, categoryQuery));
+    }
+    if (searchQuery && searchQuery.trim()) {
+      const q = `%${searchQuery.trim()}%`;
+      conditions.push(or(
+        like(auditLogs.action, q),
+        like(auditLogs.user, q),
+        like(auditLogs.category, q)
+      )!);
+    }
+
+    const logs = await db
+      .select()
+      .from(auditLogs)
+      .where(and(...conditions))
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(limit)
+      .all();
+
     const formatted = logs.map(l => {
-      const dt = new Date(l.createdAt);
+      let timeStr = l.createdAt;
+      try {
+        const dt = new Date(l.createdAt);
+        if (!isNaN(dt.getTime())) {
+          timeStr = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+        }
+      } catch (e) {}
+
       return {
         id: l.id,
-        time: `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`,
+        time: timeStr,
         user: l.user,
         action: l.action,
         category: l.category
       };
     });
-    return c.json({ auditLog: formatted });
+
+    return c.json({ auditLog: formatted, total: formatted.length });
   } catch (error: any) {
     console.error('Failed to fetch audit logs:', error);
     return c.json({ error: 'Failed to fetch audit logs' }, 500);
+  }
+});
+
+// POST /api/admin/audit
+adminRouter.post('/audit', async (c) => {
+  const payload = c.get('jwtPayload');
+  const db = getDb(c.env.DB);
+  try {
+    const body = await c.req.json();
+    const { action, category } = body;
+    if (!action || typeof action !== 'string') {
+      return c.json({ error: 'Action description is required' }, 400);
+    }
+
+    const adminName = await getAdminName(db, payload.sub);
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      user: adminName,
+      userId: payload.sub,
+      action: action.trim(),
+      category: category || 'General'
+    });
+
+    return c.json({ message: 'Audit entry recorded successfully' }, 201);
+  } catch (error: any) {
+    console.error('Failed to record audit entry:', error);
+    return c.json({ error: 'Failed to record audit entry' }, 500);
   }
 });
 
@@ -1007,6 +1186,12 @@ adminRouter.put('/config', async (c) => {
     }
 
     const updatedConfig = await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, payload.schoolId)).get();
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Updated school system configuration settings`,
+      category: 'Settings'
+    });
     return c.json({ message: 'Configuration updated successfully', config: updatedConfig });
   } catch (error: any) {
     console.error('Failed to update config:', error);
@@ -1043,6 +1228,12 @@ adminRouter.post('/fees/structures', async (c) => {
       breakdown: JSON.stringify(body.breakdown)
     });
     const newStructure = await db.select().from(feeStructures).where(eq(feeStructures.id, id)).get();
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Created fee structure for "${body.term || 'Term'}" (KES ${body.totalAmount || 0})`,
+      category: 'Finance'
+    });
     return c.json({ message: 'Fee structure created', feeStructure: newStructure }, 201);
   } catch (error: any) {
     console.error('Failed to create fee structure:', error);
@@ -1068,6 +1259,12 @@ adminRouter.put('/fees/structures/:id', async (c) => {
     }).where(eq(feeStructures.id, id));
 
     const updatedStructure = await db.select().from(feeStructures).where(eq(feeStructures.id, id)).get();
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Updated fee structure for "${body.term || existing.term}" (KES ${body.totalAmount ?? existing.totalAmount})`,
+      category: 'Finance'
+    });
     return c.json({ message: 'Fee structure updated', feeStructure: updatedStructure });
   } catch (error: any) {
     console.error('Failed to update fee structure:', error);
@@ -1190,6 +1387,13 @@ Ensure no teacher is assigned to two classes at the same time. Try to distribute
       createdAt: new Date().toISOString()
     });
 
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Regenerated school timetable schedules via AI scheduler`,
+      category: 'Timetable'
+    });
+
     return c.json({ success: true, message: 'Timetable generated successfully' });
   } catch (error) {
     console.error('Failed to generate timetable:', error);
@@ -1235,6 +1439,14 @@ adminRouter.post('/announcements', async (c) => {
       content,
       targetAudience
     });
+
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Broadcasted announcement "${title}" (Target: ${targetAudience})`,
+      category: 'Announcements'
+    });
+
     return c.json({ message: 'Announcement created successfully', announcementId }, 201);
   } catch (error: any) {
     console.error('Failed to create announcement:', error);
@@ -1339,6 +1551,13 @@ adminRouter.post('/delegations/toggle', async (c) => {
     const delegations = await db.select().from(delegatedResponsibilities)
       .where(eq(delegatedResponsibilities.schoolId, payload.schoolId))
       .all();
+
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `${existing ? 'Revoked' : 'Granted'} delegated responsibility "${responsibility}" for teacher profile ID ${teacherProfileId}`,
+      category: 'Security'
+    });
 
     return c.json({ delegations });
   } catch (error: any) {

@@ -192,4 +192,68 @@ describe("Admin Routes Suite", () => {
     }, env);
     expect(delRes.status).toBe(200);
   });
+
+  it("should record, query, filter, and post audit logs", async () => {
+    // 1. Perform an administrative action (create a teacher) which triggers automatic audit logging
+    const createTeacherRes = await app.request("/api/admin/teachers", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name: "Mr. Audit Teacher",
+        email: "audit.teacher@somobloom.com",
+        password: "Password123!",
+        department: "Languages"
+      })
+    }, env);
+    expect(createTeacherRes.status).toBe(201);
+
+    // 2. Verify that teacher operations created audit log entries
+    const auditRes = await app.request("/api/admin/audit", {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    }, env);
+    expect(auditRes.status).toBe(200);
+    const auditData = await auditRes.json() as any;
+    expect(Array.isArray(auditData.auditLog)).toBe(true);
+    expect(auditData.auditLog.length).toBeGreaterThan(0);
+
+    const userAudit = auditData.auditLog.find((l: any) => l.category === 'Users');
+    expect(userAudit).toBeDefined();
+    expect(userAudit.action).toContain("Mr. Audit Teacher");
+
+    // 2. Query with category filter
+    const catRes = await app.request("/api/admin/audit?category=Users", {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    }, env);
+    expect(catRes.status).toBe(200);
+    const catData = await catRes.json() as any;
+    expect(catData.auditLog.every((l: any) => l.category === 'Users')).toBe(true);
+
+    // 3. Post a custom administrative audit event
+    const postAuditRes = await app.request("/api/admin/audit", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "Exported end of term financial audit report (Term 3 2026)",
+        category: "Finance"
+      })
+    }, env);
+    expect(postAuditRes.status).toBe(201);
+
+    // 4. Verify search for the newly posted audit event
+    const searchRes = await app.request("/api/admin/audit?search=financial+audit+report", {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    }, env);
+    expect(searchRes.status).toBe(200);
+    const searchData = await searchRes.json() as any;
+    expect(searchData.auditLog.length).toBeGreaterThan(0);
+    expect(searchData.auditLog[0].action).toContain("financial audit report");
+    expect(searchData.auditLog[0].category).toBe("Finance");
+  });
 });
+

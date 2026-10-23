@@ -6,6 +6,7 @@ import { encryptData, hashIdentifier } from '../../lib/encryption';
 import { getEncryptionSecret } from '../../lib/config';
 import { eq, and } from 'drizzle-orm';
 import { normalizePhoneNumber } from '../../lib/phone';
+import { recordAuditLog } from '../../lib/audit';
 import type { Bindings } from '../../index';
 
 export const admissionsRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
@@ -157,6 +158,13 @@ admissionsRouter.post('/:id/approve', async (c) => {
 
     await (db.batch as any)(dbBatchOps);
 
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Approved student admission: ${fullName} (Adm: ${submission.admissionNumber || `ADM-${submissionId}`})`,
+      category: 'Admissions'
+    });
+
     return c.json({
       message: `Enrollment submission approved successfully. Student profile created.`,
       student: {
@@ -206,6 +214,13 @@ admissionsRouter.post('/:id/reject', async (c) => {
       action: 'Admissions Rejection',
       detail: `Rejected enrollment application for ${submission.firstName} ${submission.lastName}`,
       color: '#ef4444'
+    });
+
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      userId: payload.sub,
+      action: `Rejected student admission: ${submission.firstName} ${submission.lastName}`,
+      category: 'Admissions'
     });
 
     return c.json({ message: 'Enrollment application rejected successfully' });

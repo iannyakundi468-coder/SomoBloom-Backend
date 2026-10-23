@@ -198,7 +198,14 @@ async function main() {
     `INSERT OR IGNORE INTO announcements (id, school_id, title, content, target_audience, author_id) VALUES ('ann-001', '${schoolId}', 'Welcome to SomoBloom Term 3', 'Term 3 academic activities and assessments have commenced smoothly across all CBC grades.', 'all', '${adminUserId}');`,
     ``,
     `-- 7. Fee Structures`,
-    `INSERT OR IGNORE INTO fee_structures (id, school_id, class_id, term, academic_year, amount, breakdown_json) VALUES ('fee-001', '${schoolId}', '${class1Id}', 'Term 3', '2026', 25000, '{"tuition":18000,"activity":4000,"materials":3000}');`
+    `INSERT OR IGNORE INTO fee_structures (id, school_id, class_id, term, academic_year, amount, breakdown_json) VALUES ('fee-001', '${schoolId}', '${class1Id}', 'Term 3', '2026', 25000, '{"tuition":18000,"activity":4000,"materials":3000}');`,
+    ``,
+    `-- 8. Audit Logs`,
+    `INSERT OR IGNORE INTO audit_logs (id, school_id, user, action, category, created_at) VALUES ('audit-001', '${schoolId}', 'System Administrator', 'Initial school environment registered and initialized', 'Security', '${new Date(Date.now() - 86400000 * 7).toISOString()}');`,
+    `INSERT OR IGNORE INTO audit_logs (id, school_id, user, action, category, created_at) VALUES ('audit-002', '${schoolId}', 'System Administrator', 'Configured default school academic settings and CBC curriculum', 'Settings', '${new Date(Date.now() - 86400000 * 5).toISOString()}');`,
+    `INSERT OR IGNORE INTO audit_logs (id, school_id, user, action, category, created_at) VALUES ('audit-003', '${schoolId}', 'System Administrator', 'Provisioned teacher accounts and assigned classes', 'Users', '${new Date(Date.now() - 86400000 * 3).toISOString()}');`,
+    `INSERT OR IGNORE INTO audit_logs (id, school_id, user, action, category, created_at) VALUES ('audit-004', '${schoolId}', 'System Administrator', 'Configured Term 3 fee structures and student enrollments', 'Finance', '${new Date(Date.now() - 86400000 * 2).toISOString()}');`,
+    `INSERT OR IGNORE INTO audit_logs (id, school_id, user, action, category, created_at) VALUES ('audit-005', '${schoolId}', 'System Administrator', 'Published Term 3 opening announcement to all portals', 'Announcements', '${new Date(Date.now() - 86400000 * 1).toISOString()}');`
   ];
 
   console.log(sql.join('\n'));
