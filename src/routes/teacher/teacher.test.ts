@@ -27,30 +27,32 @@ describe("Teacher Timetable Integration Test", () => {
   beforeEach(async () => {
     const d1 = env.DB;
 
-    // Drop existing tables
+    // Drop existing tables in reverse dependency order
     await d1.exec(`
-      DROP TABLE IF EXISTS delegated_responsibilities;
-      DROP TABLE IF EXISTS parent_student_relations;
-      DROP TABLE IF EXISTS parent_profiles;
-      DROP TABLE IF EXISTS student_profiles;
-      DROP TABLE IF EXISTS teacher_remarks;
-      DROP TABLE IF EXISTS teacher_profiles;
-      DROP TABLE IF EXISTS admin_profiles;
-      DROP TABLE IF EXISTS enrollments;
-      DROP TABLE IF EXISTS classes;
-      DROP TABLE IF EXISTS assignments;
-      DROP TABLE IF EXISTS grades;
-      DROP TABLE IF EXISTS announcements;
-      DROP TABLE IF EXISTS student_enrollment_submissions;
+      DROP TABLE IF EXISTS activity_logs;
+      DROP TABLE IF EXISTS audit_logs;
       DROP TABLE IF EXISTS messages;
       DROP TABLE IF EXISTS attendance;
       DROP TABLE IF EXISTS portfolio_evidence;
-      DROP TABLE IF EXISTS payments;
-      DROP TABLE IF EXISTS activity_logs;
-      DROP TABLE IF EXISTS audit_logs;
-      DROP TABLE IF EXISTS school_settings;
+      DROP TABLE IF EXISTS grades;
+      DROP TABLE IF EXISTS assignments;
+      DROP TABLE IF EXISTS enrollments;
+      DROP TABLE IF EXISTS class_subjects;
+      DROP TABLE IF EXISTS subjects;
       DROP TABLE IF EXISTS fee_structures;
+      DROP TABLE IF EXISTS classes;
+      DROP TABLE IF EXISTS teacher_remarks;
+      DROP TABLE IF EXISTS parent_student_relations;
+      DROP TABLE IF EXISTS payments;
+      DROP TABLE IF EXISTS delegated_responsibilities;
+      DROP TABLE IF EXISTS parent_profiles;
+      DROP TABLE IF EXISTS student_profiles;
+      DROP TABLE IF EXISTS teacher_profiles;
+      DROP TABLE IF EXISTS admin_profiles;
+      DROP TABLE IF EXISTS student_enrollment_submissions;
+      DROP TABLE IF EXISTS announcements;
       DROP TABLE IF EXISTS timetables;
+      DROP TABLE IF EXISTS school_settings;
       DROP TABLE IF EXISTS schools;
       DROP TABLE IF EXISTS users;
     `);
@@ -155,4 +157,146 @@ describe("Teacher Timetable Integration Test", () => {
     expect(schedule[1].slots).toHaveLength(1);
     expect(schedule[1].slots[0].teacher).toBe("Mr. Robert Frost");
   });
+
+  it("should record audit logs when a teacher marks and modifies student attendance", async () => {
+    const db = getDb(env.DB);
+
+    // Setup basic school, teacher, class, student
+    await db.insert(schema.schools).values({ id: "school-123", name: "SomoBloom Academy", domainSlug: "somobloom" });
+    await db.insert(schema.users).values({ id: "teacher-user-123", emailHash: "thash", encryptedEmail: "tenc", passwordHash: "tpw" });
+    await db.insert(schema.teacherProfiles).values({ id: "teacher-profile-123", userId: "teacher-user-123", schoolId: "school-123", name: "Mr. Robert Frost" });
+    await db.insert(schema.classes).values({ id: "class-123", schoolId: "school-123", name: "Grade 4 East", teacherProfileId: "teacher-profile-123" });
+    
+    await db.insert(schema.users).values({ id: "student-user-123", emailHash: "shash", encryptedEmail: "senc", passwordHash: "spw" });
+    await db.insert(schema.studentProfiles).values({ id: "student-profile-123", userId: "student-user-123", schoolId: "school-123", name: "Jane Doe" });
+    await db.insert(schema.enrollments).values({ classId: "class-123", studentProfileId: "student-profile-123" });
+
+    const payload = { sub: "teacher-user-123", schoolId: "school-123", role: "teacher", exp: Math.floor(Date.now() / 1000) + 3600 };
+    const token = await sign(payload, "somobloom_super_secret_dev_key_123");
+
+    // 1. Mark attendance as present
+    const res1 = await app.request("/api/teacher/classes/class-123/attendance", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ studentProfileId: "student-profile-123", isPresent: true })
+    }, env);
+
+    expect(res1.status).toBe(201);
+
+    // 2. Modify attendance to absent
+    const res2 = await app.request("/api/teacher/classes/class-123/attendance", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ studentProfileId: "student-profile-123", isPresent: false })
+    }, env);
+
+    expect(res2.status).toBe(200);
+
+    // Verify audit logs were created
+    const logs = await db.select().from(schema.auditLogs).all();
+    expect(logs.length).toBe(2);
+
+    const markLog = logs.find(l => l.action.includes("Marked attendance"));
+    expect(markLog).toBeDefined();
+    expect(markLog?.category).toBe("Attendance");
+    expect(markLog?.user).toBe("Mr. Robert Frost (Teacher)");
+    expect(markLog?.action).toContain("Jane Doe");
+    expect(markLog?.action).toContain("Present");
+
+    const modifyLog = logs.find(l => l.action.includes("Modified attendance"));
+    expect(modifyLog).toBeDefined();
+    expect(modifyLog?.category).toBe("Attendance");
+    expect(modifyLog?.user).toBe("Mr. Robert Frost (Teacher)");
+    expect(modifyLog?.action).toContain("Jane Doe");
+    expect(modifyLog?.action).toContain("from Present to Absent");
+  });
+
+  it("should record audit logs when a teacher enters or alters CBC assessments and grades assignments", async () => {
+    const db = getDb(env.DB);
+
+    // Setup basic school, teacher, class, student
+    await db.insert(schema.schools).values({ id: "school-123", name: "SomoBloom Academy", domainSlug: "somobloom" });
+    await db.insert(schema.users).values({ id: "teacher-user-123", emailHash: "thash", encryptedEmail: "tenc", passwordHash: "tpw" });
+    await db.insert(schema.teacherProfiles).values({ id: "teacher-profile-123", userId: "teacher-user-123", schoolId: "school-123", name: "Mr. Robert Frost" });
+    await db.insert(schema.classes).values({ id: "class-123", schoolId: "school-123", name: "Grade 4 East", teacherProfileId: "teacher-profile-123" });
+    
+    await db.insert(schema.users).values({ id: "student-user-123", emailHash: "shash", encryptedEmail: "senc", passwordHash: "spw" });
+    await db.insert(schema.studentProfiles).values({ id: "student-profile-123", userId: "student-user-123", schoolId: "school-123", name: "Jane Doe" });
+    await db.insert(schema.enrollments).values({ classId: "class-123", studentProfileId: "student-profile-123" });
+
+    const payload = { sub: "teacher-user-123", schoolId: "school-123", role: "teacher", exp: Math.floor(Date.now() / 1000) + 3600 };
+    const token = await sign(payload, "somobloom_super_secret_dev_key_123");
+
+    // 1. Enter CBC Assessment (Level ME)
+    const resAssess1 = await app.request("/api/teacher/classes/class-123/assessments", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        studentProfileId: "student-profile-123",
+        type: "Strand",
+        name: "Multiplication",
+        level: "ME"
+      })
+    }, env);
+    expect(resAssess1.status).toBe(200);
+
+    // 2. Alter CBC Assessment (Level EE)
+    const resAssess2 = await app.request("/api/teacher/classes/class-123/assessments", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        studentProfileId: "student-profile-123",
+        type: "Strand",
+        name: "Multiplication",
+        level: "EE"
+      })
+    }, env);
+    expect(resAssess2.status).toBe(200);
+
+    // 3. Create an assignment and grade it
+    await db.insert(schema.assignments).values({
+      id: "assignment-123",
+      classId: "class-123",
+      title: "Science Volcano Project",
+      description: "Build a clay volcano"
+    });
+
+    const resGrade = await app.request("/api/teacher/assignments/assignment-123/grades", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        studentProfileId: "student-profile-123",
+        score: 95,
+        feedback: "Outstanding presentation!"
+      })
+    }, env);
+    expect(resGrade.status).toBe(201);
+
+    // Verify all audit logs recorded
+    const logs = await db.select().from(schema.auditLogs).all();
+    const gradingLogs = logs.filter(l => l.category === "Grading");
+    expect(gradingLogs.length).toBe(3);
+
+    // Recorded assessment
+    const assessLog = gradingLogs.find(l => l.action.includes("Recorded CBC assessment"));
+    expect(assessLog).toBeDefined();
+    expect(assessLog?.user).toBe("Mr. Robert Frost (Teacher)");
+    expect(assessLog?.action).toContain("Multiplication");
+    expect(assessLog?.action).toContain("Level ME");
+
+    // Altered assessment
+    const alterLog = gradingLogs.find(l => l.action.includes("Altered CBC assessment"));
+    expect(alterLog).toBeDefined();
+    expect(alterLog?.user).toBe("Mr. Robert Frost (Teacher)");
+    expect(alterLog?.action).toContain("from Assessment Level: ME to Level EE");
+
+    // Assignment Grade
+    const gradeLog = gradingLogs.find(l => l.action.includes("Recorded grade for student"));
+    expect(gradeLog).toBeDefined();
+    expect(gradeLog?.user).toBe("Mr. Robert Frost (Teacher)");
+    expect(gradeLog?.action).toContain("Jane Doe");
+    expect(gradeLog?.action).toContain("Science Volcano Project");
+    expect(gradeLog?.action).toContain("Score 95");
+  });
 });
+

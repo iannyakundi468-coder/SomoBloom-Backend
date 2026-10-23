@@ -6,6 +6,7 @@ import { hashPassword, type JwtPayload } from '../../lib/auth';
 import { encryptData, decryptData, hashIdentifier } from '../../lib/encryption';
 import { getJwtSecret, getEncryptionSecret } from '../../lib/config';
 import { eq, and, inArray, desc } from 'drizzle-orm';
+import { recordAuditLog, getTeacherName, getStudentName, getClassName, getAssignmentTitle } from '../../lib/audit';
 import type { Bindings } from '../../index';
 
 export const teacherRouter = new Hono<{ Bindings: Bindings, Variables: { jwtPayload: JwtPayload } }>();
@@ -257,6 +258,13 @@ teacherRouter.post('/classes/:classId/students', async (c) => {
         studentProfileId
       })
     ]);
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      user: `${teacherProfile.name || 'Teacher'} (Teacher)`,
+      action: `Created and enrolled student "${name}" into ${targetClass.name || 'Class'} (Adm: ${studentIdNumber || 'Auto'})`,
+      category: 'Users'
+    });
+
     return c.json({ message: 'Student created and enrolled successfully', student: { id: studentProfileId, userId, name, email } }, 201);
   } catch (error: any) {
     console.error('Failed to create student:', error);
@@ -279,6 +287,12 @@ teacherRouter.post('/classes/:classId/attendance', async (c) => {
   const todayStr = new Date().toISOString().split('T')[0];
 
   try {
+    const payload = c.get('jwtPayload');
+    const teacherName = await getTeacherName(db, payload.sub);
+    const studentName = await getStudentName(db, studentProfileId);
+    const className = await getClassName(db, classId);
+    const statusStr = isPresent ? 'Present' : 'Absent';
+
     const existing = await db.select()
       .from(attendance)
       .where(and(
@@ -289,9 +303,18 @@ teacherRouter.post('/classes/:classId/attendance', async (c) => {
       .get();
 
     if (existing) {
+      const oldStatus = existing.status === 'present' ? 'Present' : 'Absent';
       await db.update(attendance)
         .set({ status: isPresent ? 'present' : 'absent' })
         .where(eq(attendance.id, existing.id));
+
+      await recordAuditLog(db, {
+        schoolId: payload.schoolId,
+        user: `${teacherName} (Teacher)`,
+        action: `Modified attendance for student ${studentName} (${className}, ${todayStr}) from ${oldStatus} to ${statusStr}`,
+        category: 'Attendance'
+      });
+
       return c.json({ message: 'Attendance updated successfully' });
     } else {
       await db.insert(attendance).values({
@@ -301,6 +324,14 @@ teacherRouter.post('/classes/:classId/attendance', async (c) => {
         date: todayStr,
         status: isPresent ? 'present' : 'absent'
       });
+
+      await recordAuditLog(db, {
+        schoolId: payload.schoolId,
+        user: `${teacherName} (Teacher)`,
+        action: `Marked attendance for student ${studentName} (${className}, ${todayStr}) as ${statusStr}`,
+        category: 'Attendance'
+      });
+
       return c.json({ message: 'Attendance logged successfully' }, 201);
     }
   } catch (error: any) {
@@ -348,15 +379,28 @@ teacherRouter.post('/classes/:classId/assessments', async (c) => {
       assignmentId = existingAssignment.id;
     }
 
+    const payload = c.get('jwtPayload');
+    const teacherName = await getTeacherName(db, payload.sub);
+    const studentName = await getStudentName(db, studentProfileId);
+    const className = await getClassName(db, classId);
+
     const existingGrade = await db.select()
       .from(grades)
       .where(and(eq(grades.assignmentId, assignmentId), eq(grades.studentProfileId, studentProfileId)))
       .get();
 
     if (existingGrade) {
+      const oldFeedback = existingGrade.feedback || `Score: ${existingGrade.score}`;
       await db.update(grades)
         .set({ score, feedback: `Assessment Level: ${level}` })
         .where(eq(grades.id, existingGrade.id));
+
+      await recordAuditLog(db, {
+        schoolId: payload.schoolId,
+        user: `${teacherName} (Teacher)`,
+        action: `Altered CBC assessment "${name}" for ${studentName} (${className}) from ${oldFeedback} to Level ${level} (Score: ${score})`,
+        category: 'Grading'
+      });
     } else {
       const gradeId = crypto.randomUUID();
       await db.insert(grades).values({
@@ -365,6 +409,13 @@ teacherRouter.post('/classes/:classId/assessments', async (c) => {
         studentProfileId,
         score,
         feedback: `Assessment Level: ${level}`
+      });
+
+      await recordAuditLog(db, {
+        schoolId: payload.schoolId,
+        user: `${teacherName} (Teacher)`,
+        action: `Recorded CBC assessment "${name}" for ${studentName} (${className}): Level ${level} (Score: ${score})`,
+        category: 'Grading'
       });
     }
 
@@ -389,6 +440,10 @@ teacherRouter.post('/classes/:classId/assignments', async (c) => {
   const assignmentId = crypto.randomUUID();
 
   try {
+    const payload = c.get('jwtPayload');
+    const teacherName = await getTeacherName(db, payload.sub);
+    const className = await getClassName(db, classId);
+
     await db.insert(assignments).values({
       id: assignmentId,
       classId,
@@ -396,6 +451,14 @@ teacherRouter.post('/classes/:classId/assignments', async (c) => {
       description,
       dueDate
     });
+
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      user: `${teacherName} (Teacher)`,
+      action: `Created assignment "${title}" for ${className} (Due: ${dueDate || 'Not set'})`,
+      category: 'Academics'
+    });
+
     return c.json({ message: 'Assignment created successfully', assignment: { id: assignmentId, classId, title } }, 201);
   } catch (error: any) {
     return c.json({ error: 'Failed to create assignment' }, 500);
@@ -416,6 +479,11 @@ teacherRouter.post('/assignments/:assignmentId/grades', async (c) => {
   const gradeId = crypto.randomUUID();
 
   try {
+    const payload = c.get('jwtPayload');
+    const teacherName = await getTeacherName(db, payload.sub);
+    const studentName = await getStudentName(db, studentProfileId);
+    const assignmentTitle = await getAssignmentTitle(db, assignmentId);
+
     await db.insert(grades).values({
       id: gradeId,
       assignmentId,
@@ -423,6 +491,14 @@ teacherRouter.post('/assignments/:assignmentId/grades', async (c) => {
       score,
       feedback
     });
+
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      user: `${teacherName} (Teacher)`,
+      action: `Recorded grade for student ${studentName} on "${assignmentTitle}": Score ${score}${feedback ? ` ("${feedback}")` : ''}`,
+      category: 'Grading'
+    });
+
     return c.json({ message: 'Grade submitted successfully', grade: { id: gradeId, score } }, 201);
   } catch (error: any) {
     return c.json({ error: 'Failed to submit grade' }, 500);
@@ -521,6 +597,13 @@ Do not include greetings or sign-offs, just the pure remark text.`;
       term: 'Term 1, 2026' // You could make this dynamic
     });
 
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      user: `${teacherProfile.name || 'Teacher'} (Teacher)`,
+      action: `Recorded term report card remarks for student ${studentName}`,
+      category: 'Academics'
+    });
+
     return c.json({ success: true, remark });
   } catch (err: any) {
     console.error('Failed to generate and save AI feedback:', err);
@@ -576,6 +659,13 @@ teacherRouter.put('/me', async (c) => {
       name: name || profile.name,
       avatarUrl: avatarUrl !== undefined ? avatarUrl : profile.avatarUrl
     }).where(eq(teacherProfiles.userId, payload.sub));
+
+    await recordAuditLog(db, {
+      schoolId: profile.schoolId,
+      user: `${name || profile.name} (Teacher)`,
+      action: `Updated teacher profile credentials / details`,
+      category: 'Security'
+    });
 
     return c.json({ message: 'Profile updated successfully' });
   } catch (error: any) {
@@ -639,6 +729,18 @@ teacherRouter.post('/portfolio', async (c) => {
       imageUrl,
       tags
     });
+
+    const teacherName = await getTeacherName(db, payload.sub);
+    const studentName = await getStudentName(db, studentProfileId);
+    const className = await getClassName(db, classId);
+
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      user: `${teacherName} (Teacher)`,
+      action: `Created portfolio evidence "${title}" (${type}) for student ${studentName} in ${className}`,
+      category: 'Portfolio'
+    });
+
     return c.json({ message: 'Portfolio evidence created successfully', id: evidenceId }, 201);
   } catch (error: any) {
     console.error('Failed to create portfolio evidence:', error);
@@ -653,6 +755,7 @@ teacherRouter.post('/portfolio/upload', async (c) => {
   }
 
   try {
+    const payload = c.get('jwtPayload');
     const formData = await c.req.parseBody();
     const file = formData['file'];
     const title = formData['title'] as string;
@@ -693,6 +796,17 @@ teacherRouter.post('/portfolio/upload', async (c) => {
       description,
       imageUrl,
       tags
+    });
+
+    const teacherName = await getTeacherName(db, payload.sub);
+    const studentName = await getStudentName(db, studentProfileId);
+    const className = await getClassName(db, classId);
+
+    await recordAuditLog(db, {
+      schoolId: payload.schoolId,
+      user: `${teacherName} (Teacher)`,
+      action: `Uploaded portfolio evidence "${title}" (${type}) for student ${studentName} in ${className}`,
+      category: 'Portfolio'
     });
 
     return c.json({

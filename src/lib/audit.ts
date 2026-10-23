@@ -1,10 +1,13 @@
 import { eq } from 'drizzle-orm';
-import { auditLogs, adminProfiles } from '../db/schema';
+import { auditLogs, adminProfiles, teacherProfiles, studentProfiles, classes, assignments } from '../db/schema';
 
 export type AuditCategory =
   | 'Users'
   | 'Classes'
   | 'Academics'
+  | 'Grading'
+  | 'Attendance'
+  | 'Portfolio'
   | 'Settings'
   | 'Finance'
   | 'Admissions'
@@ -23,7 +26,7 @@ export interface RecordAuditParams {
 }
 
 /**
- * Look up the administrator's display name from adminProfiles if available
+ * Look up administrator's display name from adminProfiles if available
  */
 export async function getAdminName(db: any, userId?: string): Promise<string> {
   if (!userId) return 'System Administrator';
@@ -36,6 +39,74 @@ export async function getAdminName(db: any, userId?: string): Promise<string> {
     return admin?.name || 'Administrator';
   } catch {
     return 'Administrator';
+  }
+}
+
+/**
+ * Look up teacher's display name from teacherProfiles if available
+ */
+export async function getTeacherName(db: any, userId?: string): Promise<string> {
+  if (!userId) return 'Teacher';
+  try {
+    const teacher = await db
+      .select({ name: teacherProfiles.name })
+      .from(teacherProfiles)
+      .where(eq(teacherProfiles.userId, userId))
+      .get();
+    return teacher?.name || 'Teacher';
+  } catch {
+    return 'Teacher';
+  }
+}
+
+/**
+ * Look up student's display name from studentProfiles
+ */
+export async function getStudentName(db: any, studentProfileId?: string): Promise<string> {
+  if (!studentProfileId) return 'Student';
+  try {
+    const student = await db
+      .select({ name: studentProfiles.name })
+      .from(studentProfiles)
+      .where(eq(studentProfiles.id, studentProfileId))
+      .get();
+    return student?.name || 'Student';
+  } catch {
+    return 'Student';
+  }
+}
+
+/**
+ * Look up class name from classes
+ */
+export async function getClassName(db: any, classId?: string): Promise<string> {
+  if (!classId) return 'Class';
+  try {
+    const cls = await db
+      .select({ name: classes.name })
+      .from(classes)
+      .where(eq(classes.id, classId))
+      .get();
+    return cls?.name || 'Class';
+  } catch {
+    return 'Class';
+  }
+}
+
+/**
+ * Look up assignment title from assignments
+ */
+export async function getAssignmentTitle(db: any, assignmentId?: string): Promise<string> {
+  if (!assignmentId) return 'Assignment';
+  try {
+    const asg = await db
+      .select({ title: assignments.title })
+      .from(assignments)
+      .where(eq(assignments.id, assignmentId))
+      .get();
+    return asg?.title || 'Assignment';
+  } catch {
+    return 'Assignment';
   }
 }
 
@@ -57,7 +128,7 @@ export async function recordAuditLog(
     await db.insert(auditLogs).values({
       id: crypto.randomUUID(),
       schoolId: params.schoolId,
-      user: userName || 'Administrator',
+      user: userName || 'User',
       action: params.action,
       category: params.category || 'General',
       createdAt: now,
